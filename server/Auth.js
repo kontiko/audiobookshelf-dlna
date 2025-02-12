@@ -1,7 +1,9 @@
 const axios = require('axios')
 const passport = require('passport')
+const { Request, Response, NextFunction } = require('express')
 const bcrypt = require('./libs/bcryptjs')
 const jwt = require('./libs/jsonwebtoken')
+const requestIp = require('./libs/requestIp')
 const LocalStrategy = require('./libs/passportLocal')
 const JwtStrategy = require('passport-jwt').Strategy
 const ExtractJwt = require('passport-jwt').ExtractJwt
@@ -16,6 +18,26 @@ class Auth {
   constructor() {
     // Map of openId sessions indexed by oauth2 state-variable
     this.openIdAuthSession = new Map()
+    this.ignorePatterns = [/\/api\/items\/[^/]+\/cover/, /\/api\/authors\/[^/]+\/image/]
+  }
+
+  /**
+   * Checks if the request should not be authenticated.
+   * @param {Request} req
+   * @returns {boolean}
+   * @private
+   */
+  authNotNeeded(req) {
+    return req.method === 'GET' && this.ignorePatterns.some((pattern) => pattern.test(req.originalUrl))
+  }
+
+  ifAuthNeeded(middleware) {
+    return (req, res, next) => {
+      if (this.authNotNeeded(req)) {
+        return next()
+      }
+      middleware(req, res, next)
+    }
   }
 
   /**
@@ -75,7 +97,7 @@ class Auth {
    * Passport use LocalStrategy
    */
   initAuthStrategyPassword() {
-    passport.use(new LocalStrategy(this.localAuthCheckUserPw.bind(this)))
+    passport.use(new LocalStrategy({ passReqToCallback: true }, this.localAuthCheckUserPw.bind(this)))
   }
 
   /**
@@ -109,7 +131,7 @@ class Auth {
         {
           client: openIdClient,
           params: {
-            redirect_uri: '/auth/openid/callback',
+            redirect_uri: `${global.ServerSettings.authOpenIDSubfolderForRedirectURLs}/auth/openid/callback`,
             scope: 'openid profile email'
           }
         },
@@ -151,6 +173,8 @@ class Auth {
   /**
    * Finds an existing user by OpenID subject identifier, or by email/username based on server settings,
    * or creates a new user if configured to do so.
+   *
+   * @returns {Promise<import('./models/User')|null>}
    */
   async findOrCreateUser(userinfo) {
     let user = await Database.userModel.getUserByOpenIDSub(userinfo.sub)
@@ -213,8 +237,11 @@ class Auth {
         return null
       }
 
-      user.authOpenIDSub = userinfo.sub
-      await Database.userModel.updateFromOld(user)
+      // Update user with OpenID sub
+      if (!user.extraData) user.extraData = {}
+      user.extraData.authOpenIDSub = userinfo.sub
+      user.changed('extraData', true)
+      await user.save()
 
       Logger.debug(`[Auth] openid: User found by email/username`)
       return user
@@ -250,7 +277,7 @@ class Auth {
   /**
    * Sets the user group based on group claim in userinfo.
    *
-   * @param {import('./objects/user/User')} user
+   * @param {import('./models/User')} user
    * @param {Object} userinfo
    */
   async setUserGroup(user, userinfo) {
@@ -279,7 +306,7 @@ class Auth {
       if (user.type !== userType) {
         Logger.info(`[Auth] openid callback: Updating user "${user.username}" type to "${userType}" from "${user.type}"`)
         user.type = userType
-        await Database.userModel.updateFromOld(user)
+        await user.save()
       }
     } else {
       throw new Error(`No valid group found in userinfo: ${JSON.stringify(userinfo[groupClaimName], null, 2)}`)
@@ -289,7 +316,7 @@ class Auth {
   /**
    * Updates user permissions based on the advanced permissions claim.
    *
-   * @param {import('./objects/user/User')} user
+   * @param {import('./models/User')} user
    * @param {Object} userinfo
    */
   async updateUserPermissions(user, userinfo) {
@@ -303,9 +330,8 @@ class Auth {
     const absPermissions = userinfo[absPermissionsClaim]
     if (!absPermissions) throw new Error(`Advanced permissions claim ${absPermissionsClaim} not found in userinfo`)
 
-    if (user.updatePermissionsFromExternalJSON(absPermissions)) {
+    if (await user.updatePermissionsFromExternalJSON(absPermissions)) {
       Logger.info(`[Auth] openid callback: Updating advanced perms for user "${user.username}" using "${JSON.stringify(absPermissions)}"`)
-      await Database.userModel.updateFromOld(user)
     }
   }
 
@@ -352,8 +378,8 @@ class Auth {
    * - 'openid': OpenID authentication directly over web
    * - 'openid-mobile': OpenID authentication, but done via an mobile device
    *
-   * @param {import('express').Request} req
-   * @param {import('express').Response} res
+   * @param {Request} req
+   * @param {Response} res
    * @param {string} authMethod - The authentication method, default is 'local'.
    */
   paramsToCookies(req, res, authMethod = 'local') {
@@ -382,8 +408,8 @@ class Auth {
    * Informs the client in the right mode about a successfull login and the token
    * (clients choise is restored from cookies).
    *
-   * @param {import('express').Request} req
-   * @param {import('express').Response} res
+   * @param {Request} req
+   * @param {Response} res
    */
   async handleLoginSuccessBasedOnCookie(req, res) {
     // get userLogin json (information about the user, server and the session)
@@ -454,9 +480,9 @@ class Auth {
           //   for the request to mobile-redirect and as such the session is not shared
           this.openIdAuthSession.set(state, { mobile_redirect_uri: req.query.redirect_uri })
 
-          redirectUri = new URL('/auth/openid/mobile-redirect', hostUrl).toString()
+          redirectUri = new URL(`${global.ServerSettings.authOpenIDSubfolderForRedirectURLs}/auth/openid/mobile-redirect`, hostUrl).toString()
         } else {
-          redirectUri = new URL('/auth/openid/callback', hostUrl).toString()
+          redirectUri = new URL(`${global.ServerSettings.authOpenIDSubfolderForRedirectURLs}/auth/openid/callback`, hostUrl).toString()
 
           if (req.query.state) {
             Logger.debug(`[Auth] Invalid state - not allowed on web openid flow`)
@@ -707,7 +733,7 @@ class Auth {
                 const host = req.get('host')
                 // TODO: ABS does currently not support subfolders for installation
                 // If we want to support it we need to include a config for the serverurl
-                postLogoutRedirectUri = `${protocol}://${host}/login`
+                postLogoutRedirectUri = `${protocol}://${host}${global.RouterBasePath}/login`
               }
               // else for openid-mobile we keep postLogoutRedirectUri on null
               //  nice would be to redirect to the app here, but for example Authentik does not implement
@@ -737,9 +763,9 @@ class Auth {
 
   /**
    * middleware to use in express to only allow authenticated users.
-   * @param {import('express').Request} req
-   * @param {import('express').Response} res
-   * @param {import('express').NextFunction} next
+   * @param {Request} req
+   * @param {Response} res
+   * @param {NextFunction} next
    */
   isAuthenticated(req, res, next) {
     // check if session cookie says that we are authenticated
@@ -788,12 +814,14 @@ class Auth {
     await Database.updateServerSettings()
 
     // New token secret creation added in v2.1.0 so generate new API tokens for each user
-    const users = await Database.userModel.getOldUsers()
+    const users = await Database.userModel.findAll({
+      attributes: ['id', 'username', 'token']
+    })
     if (users.length) {
       for (const user of users) {
         user.token = await this.generateAccessToken(user)
+        await user.save({ hooks: false })
       }
-      await Database.updateBulkUsers(users)
     }
   }
 
@@ -818,15 +846,21 @@ class Auth {
 
   /**
    * Checks if a username and password tuple is valid and the user active.
+   * @param {Request} req
    * @param {string} username
    * @param {string} password
    * @param {Promise<function>} done
    */
-  async localAuthCheckUserPw(username, password, done) {
+  async localAuthCheckUserPw(req, username, password, done) {
     // Load the user given it's username
     const user = await Database.userModel.getUserByUsername(username.toLowerCase())
 
     if (!user?.isActive) {
+      if (user) {
+        this.logFailedLocalAuthLoginAttempt(req, user.username, 'User is not active')
+      } else {
+        this.logFailedLocalAuthLoginAttempt(req, username, 'User not found')
+      }
       done(null, null)
       return
     }
@@ -835,14 +869,16 @@ class Auth {
     if (user.type === 'root' && !user.pash) {
       if (password) {
         // deny login
+        this.logFailedLocalAuthLoginAttempt(req, user.username, 'Root user has no password set')
         done(null, null)
         return
       }
       // approve login
+      Logger.info(`[Auth] User "${user.username}" logged in from ip ${requestIp.getClientIp(req)}`)
       done(null, user)
       return
     } else if (!user.pash) {
-      Logger.error(`[Auth] User "${user.username}"/"${user.type}" attempted to login without a password set`)
+      this.logFailedLocalAuthLoginAttempt(req, user.username, 'User has no password set. Might have been created with OpenID')
       done(null, null)
       return
     }
@@ -851,12 +887,25 @@ class Auth {
     const compare = await bcrypt.compare(password, user.pash)
     if (compare) {
       // approve login
+      Logger.info(`[Auth] User "${user.username}" logged in from ip ${requestIp.getClientIp(req)}`)
       done(null, user)
       return
     }
     // deny login
+    this.logFailedLocalAuthLoginAttempt(req, user.username, 'Invalid password')
     done(null, null)
     return
+  }
+
+  /**
+   *
+   * @param {Request} req
+   * @param {string} username
+   * @param {string} message
+   */
+  logFailedLocalAuthLoginAttempt(req, username, message) {
+    if (!req || !username || !message) return
+    Logger.error(`[Auth] Failed login attempt for username "${username}" from ip ${requestIp.getClientIp(req)} (${message})`)
   }
 
   /**
@@ -879,13 +928,13 @@ class Auth {
   /**
    * Return the login info payload for a user
    *
-   * @param {Object} user
+   * @param {import('./models/User')} user
    * @returns {Promise<Object>} jsonPayload
    */
   async getUserLoginResponsePayload(user) {
     const libraryIds = await Database.libraryModel.getAllLibraryIds()
     return {
-      user: user.toJSONForBrowser(),
+      user: user.toOldJSONForBrowser(),
       userDefaultLibraryId: user.getDefaultLibraryId(libraryIds),
       serverSettings: Database.serverSettings.toJSONForBrowser(),
       ereaderDevices: Database.emailSettings.getEReaderDevices(user),
@@ -907,9 +956,10 @@ class Auth {
 
   /**
    * User changes their password from request
+   * TODO: Update responses to use error status codes
    *
-   * @param {import('express').Request} req
-   * @param {import('express').Response} res
+   * @param {import('./controllers/MeController').RequestWithUser} req
+   * @param {Response} res
    */
   async userChangePassword(req, res) {
     let { password, newPassword } = req.body
@@ -940,16 +990,14 @@ class Auth {
         })
       }
     }
-
-    matchingUser.pash = pw
-
-    const success = await Database.updateUser(matchingUser)
-    if (success) {
+    try {
+      await matchingUser.update({ pash: pw })
       Logger.info(`[Auth] User "${matchingUser.username}" changed password`)
       res.json({
         success: true
       })
-    } else {
+    } catch (error) {
+      Logger.error(`[Auth] User "${matchingUser.username}" failed to change password`, error)
       res.json({
         error: 'Unknown error'
       })

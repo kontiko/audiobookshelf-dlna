@@ -1,5 +1,4 @@
 const axios = require('axios').default
-const htmlSanitizer = require('../utils/htmlSanitizer')
 const Logger = require('../Logger')
 const { isValidASIN } = require('../utils/index')
 
@@ -68,7 +67,7 @@ class Audible {
       narrator: narrators ? narrators.map(({ name }) => name).join(', ') : null,
       publisher: publisherName,
       publishedYear: releaseDate ? releaseDate.split('-')[0] : null,
-      description: summary ? htmlSanitizer.stripAllTags(summary) : null,
+      description: summary || null,
       cover: image,
       asin,
       genres: genresFiltered.length ? genresFiltered : null,
@@ -87,10 +86,10 @@ class Audible {
    * @param {string} asin
    * @param {string} region
    * @param {number} [timeout] response timeout in ms
-   * @returns {Promise<Object[]>}
+   * @returns {Promise<Object>}
    */
   asinSearch(asin, region, timeout = this.#responseTimeout) {
-    if (!asin) return []
+    if (!asin) return null
     if (!timeout || isNaN(timeout)) timeout = this.#responseTimeout
 
     asin = encodeURIComponent(asin.toUpperCase())
@@ -102,12 +101,12 @@ class Audible {
         timeout
       })
       .then((res) => {
-        if (!res || !res.data || !res.data.asin) return null
+        if (!res?.data?.asin) return null
         return res.data
       })
       .catch((error) => {
         Logger.error('[Audible] ASIN search error', error)
-        return []
+        return null
       })
   }
 
@@ -127,16 +126,18 @@ class Audible {
     }
     if (!timeout || isNaN(timeout)) timeout = this.#responseTimeout
 
-    let items
+    let items = []
     if (asin && isValidASIN(asin.toUpperCase())) {
-      items = [await this.asinSearch(asin, region, timeout)]
+      const item = await this.asinSearch(asin, region, timeout)
+      if (item) items.push(item)
     }
 
-    if (!items && isValidASIN(title.toUpperCase())) {
-      items = [await this.asinSearch(title, region, timeout)]
+    if (!items.length && isValidASIN(title.toUpperCase())) {
+      const item = await this.asinSearch(title, region, timeout)
+      if (item) items.push(item)
     }
 
-    if (!items) {
+    if (!items.length) {
       const queryObj = {
         num_results: '10',
         products_sort_by: 'Relevance',
@@ -160,7 +161,7 @@ class Audible {
           return []
         })
     }
-    return items?.map((item) => this.cleanResult(item)) || []
+    return items.filter(Boolean).map((item) => this.cleanResult(item)) || []
   }
 }
 

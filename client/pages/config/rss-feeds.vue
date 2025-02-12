@@ -4,7 +4,7 @@
       <template #header-items>
         <ui-tooltip :text="$strings.LabelClickForMoreInfo" class="inline-flex ml-2">
           <a href="https://www.audiobookshelf.org/guides/rss_feeds" target="_blank" class="inline-flex">
-            <span class="material-icons text-xl w-5 text-gray-200">help_outline</span>
+            <span class="material-symbols text-xl w-5 text-gray-200">help_outline</span>
           </a>
         </ui-tooltip>
       </template>
@@ -25,7 +25,7 @@
           <tr v-for="feed in feeds" :key="feed.id" class="cursor-pointer h-12" @click="showFeed(feed)">
             <!--  -->
             <td>
-              <img :src="coverUrl(feed)" class="h-full w-full" />
+              <img :src="coverUrl(feed)" class="h-auto w-full" />
             </td>
             <!--  -->
             <td class="w-48 max-w-64 min-w-24 text-left truncate">
@@ -46,7 +46,7 @@
             <!--  -->
             <td class="text-center leading-none hidden lg:table-cell">
               <p v-if="feed.meta.preventIndexing" class="">
-                <span class="material-icons text-2xl">check</span>
+                <span class="material-symbols text-2xl">check</span>
               </p>
             </td>
             <!--  -->
@@ -126,7 +126,7 @@ export default {
     },
     coverUrl(feed) {
       if (!feed.coverPath) return `${this.$config.routerBasePath}/Logo.png`
-      return `${feed.feedUrl}/cover`
+      return `${this.$config.routerBasePath}${feed.feedUrl}/cover`
     },
     async loadFeeds() {
       const data = await this.$axios.$get(`/api/feeds`).catch((err) => {

@@ -12,6 +12,7 @@ const { DataTypes, Model } = require('sequelize')
  * @property {Object} extraData
  * @property {Date} createdAt
  * @property {Date} updatedAt
+ * @property {boolean} isDownloadable
  *
  * @typedef {MediaItemShareObject & MediaItemShare} MediaItemShareModel
  */
@@ -25,11 +26,40 @@ const { DataTypes, Model } = require('sequelize')
  * @property {Date} expiresAt
  * @property {Date} createdAt
  * @property {Date} updatedAt
+ * @property {boolean} isDownloadable
  */
 
 class MediaItemShare extends Model {
   constructor(values, options) {
     super(values, options)
+
+    /** @type {UUIDV4} */
+    this.id
+    /** @type {UUIDV4} */
+    this.mediaItemId
+    /** @type {string} */
+    this.mediaItemType
+    /** @type {string} */
+    this.slug
+    /** @type {string} */
+    this.pash
+    /** @type {UUIDV4} */
+    this.userId
+    /** @type {Date} */
+    this.expiresAt
+    /** @type {Object} */
+    this.extraData
+    /** @type {Date} */
+    this.createdAt
+    /** @type {Date} */
+    this.updatedAt
+    /** @type {boolean} */
+    this.isDownloadable
+
+    // Expanded properties
+
+    /** @type {import('./Book')|import('./PodcastEpisode')} */
+    this.mediaItem
   }
 
   toJSONForClient() {
@@ -40,8 +70,31 @@ class MediaItemShare extends Model {
       slug: this.slug,
       expiresAt: this.expiresAt,
       createdAt: this.createdAt,
-      updatedAt: this.updatedAt
+      updatedAt: this.updatedAt,
+      isDownloadable: this.isDownloadable
     }
+  }
+
+  /**
+   * Expanded book that includes library settings
+   *
+   * @param {string} mediaItemId
+   * @param {string} mediaItemType
+   * @returns {Promise<import('./LibraryItem').LibraryItemExpanded>}
+   */
+  static async getMediaItemsLibraryItem(mediaItemId, mediaItemType) {
+    /** @type {typeof import('./LibraryItem')} */
+    const libraryItemModel = this.sequelize.models.libraryItem
+
+    if (mediaItemType === 'book') {
+      const libraryItem = await libraryItemModel.findOneExpanded({ mediaId: mediaItemId }, null, {
+        model: this.sequelize.models.library,
+        attributes: ['settings']
+      })
+
+      return libraryItem
+    }
+    return null
   }
 
   /**
@@ -68,12 +121,13 @@ class MediaItemShare extends Model {
           defaultValue: DataTypes.UUIDV4,
           primaryKey: true
         },
-        mediaItemId: DataTypes.UUIDV4,
+        mediaItemId: DataTypes.UUID,
         mediaItemType: DataTypes.STRING,
         slug: DataTypes.STRING,
         pash: DataTypes.STRING,
         expiresAt: DataTypes.DATE,
-        extraData: DataTypes.JSON
+        extraData: DataTypes.JSON,
+        isDownloadable: DataTypes.BOOLEAN
       },
       {
         sequelize,

@@ -1,19 +1,24 @@
 const pkg = require('./package.json')
 
+const routerBasePath = process.env.ROUTER_BASE_PATH ?? ''
+const serverHostUrl = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3333'
+const serverPaths = ['api/', 'public/', 'hls/', 'auth/', 'feed/', 'status', 'login', 'logout', 'init']
+const proxy = Object.fromEntries(serverPaths.map((path) => [`${routerBasePath}/${path}`, { target: process.env.NODE_ENV !== 'production' ? serverHostUrl : '/' }]))
+
 module.exports = {
   // Disable server-side rendering: https://go.nuxtjs.dev/ssr-mode
   ssr: false,
   target: 'static',
   dev: process.env.NODE_ENV !== 'production',
   env: {
-    serverUrl: process.env.NODE_ENV === 'production' ? process.env.ROUTER_BASE_PATH || '' : 'http://localhost:3333',
+    serverUrl: serverHostUrl + routerBasePath,
     chromecastReceiver: 'FD1F76C5'
   },
   telemetry: false,
 
   publicRuntimeConfig: {
     version: pkg.version,
-    routerBasePath: process.env.ROUTER_BASE_PATH || ''
+    routerBasePath
   },
 
   // Global page headers: https://go.nuxtjs.dev/config-head
@@ -25,13 +30,13 @@ module.exports = {
     meta: [{ charset: 'utf-8' }, { name: 'viewport', content: 'width=device-width, initial-scale=1' }, { hid: 'description', name: 'description', content: '' }, { hid: 'robots', name: 'robots', content: 'noindex' }],
     script: [],
     link: [
-      { rel: 'icon', type: 'image/x-icon', href: (process.env.ROUTER_BASE_PATH || '') + '/favicon.ico' },
-      { rel: 'apple-touch-icon', href: (process.env.ROUTER_BASE_PATH || '') + '/ios_icon.png' }
+      { rel: 'icon', type: 'image/x-icon', href: routerBasePath + '/favicon.ico' },
+      { rel: 'apple-touch-icon', href: routerBasePath + '/ios_icon.png' }
     ]
   },
 
   router: {
-    base: process.env.ROUTER_BASE_PATH || ''
+    base: routerBasePath
   },
 
   // Global CSS: https://go.nuxtjs.dev/config-css
@@ -62,7 +67,7 @@ module.exports = {
     sockets: [
       {
         name: 'dev',
-        url: 'http://localhost:3333'
+        url: serverHostUrl
       },
       {
         name: 'prod'
@@ -72,7 +77,7 @@ module.exports = {
 
   // Axios module configuration: https://go.nuxtjs.dev/config-axios
   axios: {
-    baseURL: process.env.ROUTER_BASE_PATH || ''
+    baseURL: routerBasePath
   },
 
   // nuxt/pwa https://pwa.nuxtjs.org
@@ -92,11 +97,11 @@ module.exports = {
       background_color: '#232323',
       icons: [
         {
-          src: (process.env.ROUTER_BASE_PATH || '') + '/icon.svg',
+          src: routerBasePath + '/icon.svg',
           sizes: 'any'
         },
         {
-          src: (process.env.ROUTER_BASE_PATH || '') + '/icon192.png',
+          src: routerBasePath + '/icon192.png',
           type: 'image/png',
           sizes: 'any'
         }
@@ -113,9 +118,11 @@ module.exports = {
   // Build Configuration: https://go.nuxtjs.dev/config-build
   build: {
     postcss: {
-      plugins: {
-        tailwindcss: {},
-        autoprefixer: {}
+      postcssOptions: {
+        plugins: {
+          tailwindcss: {},
+          autoprefixer: {}
+        }
       }
     }
   },

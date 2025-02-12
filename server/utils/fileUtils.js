@@ -15,7 +15,7 @@ const { AudioMimeType } = require('./constants')
  */
 const filePathToPOSIX = (path) => {
   if (!global.isWin || !path) return path
-  return path.replace(/\\/g, '/')
+  return path.startsWith('\\\\') ? '\\\\' + path.slice(2).replace(/\\/g, '/') : path.replace(/\\/g, '/')
 }
 module.exports.filePathToPOSIX = filePathToPOSIX
 
@@ -131,24 +131,21 @@ async function readTextFile(path) {
 }
 module.exports.readTextFile = readTextFile
 
-function bytesPretty(bytes, decimals = 0) {
-  if (bytes === 0) {
-    return '0 Bytes'
-  }
-  const k = 1000
-  var dm = decimals < 0 ? 0 : decimals
-  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  if (i > 2 && dm === 0) dm = 1
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i]
-}
-module.exports.bytesPretty = bytesPretty
+/**
+ * @typedef FilePathItem
+ * @property {string} name - file name e.g. "audiofile.m4b"
+ * @property {string} path - fullpath excluding folder e.g. "Author/Book/audiofile.m4b"
+ * @property {string} reldirpath - path excluding file name e.g. "Author/Book"
+ * @property {string} fullpath - full path e.g. "/audiobooks/Author/Book/audiofile.m4b"
+ * @property {string} extension - file extension e.g. ".m4b"
+ * @property {number} deep - depth of file in directory (0 is file in folder root)
+ */
 
 /**
  * Get array of files inside dir
  * @param {string} path
  * @param {string} [relPathToReplace]
- * @returns {{name:string, path:string, dirpath:string, reldirpath:string, fullpath:string, extension:string, deep:number}[]}
+ * @returns {FilePathItem[]}
  */
 async function recurseFiles(path, relPathToReplace = null) {
   path = filePathToPOSIX(path)
@@ -169,7 +166,7 @@ async function recurseFiles(path, relPathToReplace = null) {
     extensions: true,
     deep: true,
     realPath: true,
-    normalizePath: true
+    normalizePath: false
   }
   let list = await rra.list(path, options)
   if (list.error) {
@@ -186,6 +183,8 @@ async function recurseFiles(path, relPathToReplace = null) {
         return false
       }
 
+      item.fullname = filePathToPOSIX(item.fullname)
+      item.path = filePathToPOSIX(item.path)
       const relpath = item.fullname.replace(relPathToReplace, '')
       let reldirname = Path.dirname(relpath)
       if (reldirname === '.') reldirname = ''
@@ -224,7 +223,6 @@ async function recurseFiles(path, relPathToReplace = null) {
       return {
         name: item.name,
         path: item.fullname.replace(relPathToReplace, ''),
-        dirpath: item.path,
         reldirpath: isInRoot ? '' : item.path.replace(relPathToReplace, ''),
         fullpath: item.fullname,
         extension: item.extension,
@@ -238,6 +236,26 @@ async function recurseFiles(path, relPathToReplace = null) {
   return list
 }
 module.exports.recurseFiles = recurseFiles
+
+/**
+ *
+ * @param {import('../Watcher').PendingFileUpdate} fileUpdate
+ * @returns {FilePathItem}
+ */
+module.exports.getFilePathItemFromFileUpdate = (fileUpdate) => {
+  let relPath = fileUpdate.relPath
+  if (relPath.startsWith('/')) relPath = relPath.slice(1)
+
+  const dirname = Path.dirname(relPath)
+  return {
+    name: Path.basename(relPath),
+    path: relPath,
+    reldirpath: dirname === '.' ? '' : dirname,
+    fullpath: fileUpdate.path,
+    extension: Path.extname(relPath),
+    deep: relPath.split('/').length - 1
+  }
+}
 
 /**
  * Download file from web to local file system
@@ -255,9 +273,12 @@ module.exports.downloadFile = (url, filepath, contentTypeFilter = null) => {
       url,
       method: 'GET',
       responseType: 'stream',
+      headers: {
+        'User-Agent': 'audiobookshelf (+https://audiobookshelf.org)'
+      },
       timeout: 30000,
-      httpAgent: global.DisableSsrfRequestFilter ? null : ssrfFilter(url),
-      httpsAgent: global.DisableSsrfRequestFilter ? null : ssrfFilter(url)
+      httpAgent: global.DisableSsrfRequestFilter?.(url) ? null : ssrfFilter(url),
+      httpsAgent: global.DisableSsrfRequestFilter?.(url) ? null : ssrfFilter(url)
     })
       .then((response) => {
         // Validate content type
@@ -265,9 +286,22 @@ module.exports.downloadFile = (url, filepath, contentTypeFilter = null) => {
           return reject(new Error(`Invalid content type "${response.headers?.['content-type'] || ''}"`))
         }
 
+        const totalSize = parseInt(response.headers['content-length'], 10)
+        let downloadedSize = 0
+
         // Write to filepath
         const writer = fs.createWriteStream(filepath)
         response.data.pipe(writer)
+
+        let lastProgress = 0
+        response.data.on('data', (chunk) => {
+          downloadedSize += chunk.length
+          const progress = totalSize ? Math.round((downloadedSize / totalSize) * 100) : 0
+          if (progress >= lastProgress + 5) {
+            Logger.debug(`[fileUtils] File "${Path.basename(filepath)}" download progress: ${progress}% (${downloadedSize}/${totalSize} bytes)`)
+            lastProgress = progress
+          }
+        })
 
         writer.on('finish', resolve)
         writer.on('error', reject)
@@ -461,3 +495,46 @@ module.exports.getDirectoriesInPath = async (dirPath, level) => {
     return []
   }
 }
+
+/**
+ * Copies a file from the source path to an existing destination path, preserving the destination's permissions.
+ *
+ * @param {string} srcPath - The path of the source file.
+ * @param {string} destPath - The path of the existing destination file.
+ * @returns {Promise<void>} A promise that resolves when the file has been successfully copied.
+ * @throws {Error} If there is an error reading the source file or writing the destination file.
+ */
+async function copyToExisting(srcPath, destPath) {
+  return new Promise((resolve, reject) => {
+    // Create a readable stream from the source file
+    const readStream = fs.createReadStream(srcPath)
+
+    // Create a writable stream to the destination file
+    const writeStream = fs.createWriteStream(destPath, { flags: 'w' })
+
+    // Pipe the read stream to the write stream
+    readStream.pipe(writeStream)
+
+    // Handle the end of the stream
+    writeStream.on('finish', () => {
+      Logger.debug(`[copyToExisting] Successfully copied file from ${srcPath} to ${destPath}`)
+      resolve()
+    })
+
+    // Handle errors
+    readStream.on('error', (error) => {
+      Logger.error(`[copyToExisting] Error reading from source file ${srcPath}: ${error.message}`)
+      readStream.close()
+      writeStream.close()
+      reject(error)
+    })
+
+    writeStream.on('error', (error) => {
+      Logger.error(`[copyToExisting] Error writing to destination file ${destPath}: ${error.message}`)
+      readStream.close()
+      writeStream.close()
+      reject(error)
+    })
+  })
+}
+module.exports.copyToExisting = copyToExisting

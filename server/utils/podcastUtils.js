@@ -4,9 +4,75 @@ const Logger = require('../Logger')
 const { xmlToJSON, levenshteinDistance } = require('./index')
 const htmlSanitizer = require('../utils/htmlSanitizer')
 
+/**
+ * @typedef RssPodcastEpisode
+ * @property {string} title
+ * @property {string} subtitle
+ * @property {string} description
+ * @property {string} descriptionPlain
+ * @property {string} pubDate
+ * @property {string} episodeType
+ * @property {string} season
+ * @property {string} episode
+ * @property {string} author
+ * @property {string} duration
+ * @property {string} explicit
+ * @property {number} publishedAt - Unix timestamp
+ * @property {{ url: string, type?: string, length?: string }} enclosure
+ * @property {string} guid
+ * @property {string} chaptersUrl
+ * @property {string} chaptersType
+ */
+
+/**
+ * @typedef RssPodcastMetadata
+ * @property {string} title
+ * @property {string} language
+ * @property {string} explicit
+ * @property {string} author
+ * @property {string} pubDate
+ * @property {string} link
+ * @property {string} image
+ * @property {string[]} categories
+ * @property {string} feedUrl
+ * @property {string} description
+ * @property {string} descriptionPlain
+ * @property {string} type
+ */
+
+/**
+ * @typedef RssPodcast
+ * @property {RssPodcastMetadata} metadata
+ * @property {RssPodcastEpisode[]} episodes
+ * @property {number} numEpisodes
+ */
+
 function extractFirstArrayItem(json, key) {
   if (!json[key]?.length) return null
   return json[key][0]
+}
+
+function extractStringOrStringify(json) {
+  try {
+    if (typeof json[Object.keys(json)[0]]?.[0] === 'string') {
+      return json[Object.keys(json)[0]][0]
+    }
+    // Handles case where html was included without being wrapped in CDATA
+    return JSON.stringify(value)
+  } catch {
+    return ''
+  }
+}
+
+function extractFirstArrayItemString(json, key) {
+  const item = extractFirstArrayItem(json, key)
+  if (!item) return ''
+  if (typeof item === 'object') {
+    if (item?.['_'] && typeof item['_'] === 'string') return item['_']
+
+    return extractStringOrStringify(item)
+  }
+  return typeof item === 'string' ? item : ''
 }
 
 function extractImage(channel) {
@@ -58,9 +124,9 @@ function extractPodcastMetadata(channel) {
   }
 
   if (channel['description']) {
-    const rawDescription = extractFirstArrayItem(channel, 'description') || ''
-    metadata.description = htmlSanitizer.sanitize(rawDescription)
-    metadata.descriptionPlain = htmlSanitizer.stripAllTags(rawDescription)
+    const rawDescription = extractFirstArrayItemString(channel, 'description')
+    metadata.description = htmlSanitizer.sanitize(rawDescription.trim())
+    metadata.descriptionPlain = htmlSanitizer.stripAllTags(rawDescription.trim())
   }
 
   const arrayFields = ['title', 'language', 'itunes:explicit', 'itunes:author', 'pubDate', 'link', 'itunes:type']
@@ -75,15 +141,19 @@ function extractPodcastMetadata(channel) {
 
 function extractEpisodeData(item) {
   // Episode must have url
-  if (!item.enclosure?.[0]?.['$']?.url) {
+  let enclosure
+
+  if (item.enclosure?.[0]?.['$']?.url) {
+    enclosure = item.enclosure[0]['$']
+  } else if(item['media:content']?.find(c => c?.['$']?.url && (c?.['$']?.type ?? "").startsWith("audio"))) {
+    enclosure = item['media:content'].find(c => (c['$']?.type ?? "").startsWith("audio"))['$']
+  } else {
     Logger.error(`[podcastUtils] Invalid podcast episode data`)
     return null
   }
 
   const episode = {
-    enclosure: {
-      ...item.enclosure[0]['$']
-    }
+    enclosure: enclosure,
   }
 
   episode.enclosure.url = episode.enclosure.url.trim()
@@ -102,9 +172,10 @@ function extractEpisodeData(item) {
 
   // Supposed to be the plaintext description but not always followed
   if (item['description']) {
-    const rawDescription = extractFirstArrayItem(item, 'description') || ''
-    if (!episode.description) episode.description = htmlSanitizer.sanitize(rawDescription)
-    episode.descriptionPlain = htmlSanitizer.stripAllTags(rawDescription)
+    const rawDescription = extractFirstArrayItemString(item, 'description')
+
+    if (!episode.description) episode.description = htmlSanitizer.sanitize(rawDescription.trim())
+    episode.descriptionPlain = htmlSanitizer.stripAllTags(rawDescription.trim())
   }
 
   if (item['pubDate']) {
@@ -132,9 +203,7 @@ function extractEpisodeData(item) {
   const arrayFields = ['title', 'itunes:episodeType', 'itunes:season', 'itunes:episode', 'itunes:author', 'itunes:duration', 'itunes:explicit', 'itunes:subtitle']
   arrayFields.forEach((key) => {
     const cleanKey = key.split(':').pop()
-    let value = extractFirstArrayItem(item, key)
-    if (value?.['_']) value = value['_']
-    episode[cleanKey] = value
+    episode[cleanKey] = extractFirstArrayItemString(item, key)
   })
   return episode
 }
@@ -223,19 +292,30 @@ module.exports.parsePodcastRssFeedXml = async (xml, excludeEpisodeMetadata = fal
  *
  * @param {string} feedUrl
  * @param {boolean} [excludeEpisodeMetadata=false]
- * @returns {Promise}
+ * @returns {Promise<RssPodcast|null>}
  */
 module.exports.getPodcastFeed = (feedUrl, excludeEpisodeMetadata = false) => {
   Logger.debug(`[podcastUtils] getPodcastFeed for "${feedUrl}"`)
 
+  let userAgent = 'audiobookshelf (+https://audiobookshelf.org; like iTMS)'
+  // Workaround for CBC RSS feeds rejecting our user agent string
+  // See: https://github.com/advplyr/audiobookshelf/issues/3322
+  if (feedUrl.startsWith('https://www.cbc.ca')) {
+    userAgent = 'audiobookshelf (+https://audiobookshelf.org; like iTMS) - CBC'
+  }
+
   return axios({
     url: feedUrl,
     method: 'GET',
-    timeout: 12000,
+    timeout: global.PodcastDownloadTimeout,
     responseType: 'arraybuffer',
-    headers: { Accept: 'application/rss+xml, application/xhtml+xml, application/xml, */*;q=0.8' },
-    httpAgent: global.DisableSsrfRequestFilter ? null : ssrfFilter(feedUrl),
-    httpsAgent: global.DisableSsrfRequestFilter ? null : ssrfFilter(feedUrl)
+    headers: {
+      Accept: 'application/rss+xml, application/xhtml+xml, application/xml, */*;q=0.8',
+      'Accept-Encoding': 'gzip, compress, deflate',
+      'User-Agent': userAgent
+    },
+    httpAgent: global.DisableSsrfRequestFilter?.(feedUrl) ? null : ssrfFilter(feedUrl),
+    httpsAgent: global.DisableSsrfRequestFilter?.(feedUrl) ? null : ssrfFilter(feedUrl)
   })
     .then(async (data) => {
       // Adding support for ios-8859-1 encoded RSS feeds.
@@ -277,6 +357,12 @@ module.exports.findMatchingEpisodes = async (feedUrl, searchTitle) => {
   return this.findMatchingEpisodesInFeed(feed, searchTitle)
 }
 
+/**
+ *
+ * @param {RssPodcast} feed
+ * @param {string} searchTitle
+ * @returns {Array<{ episode: RssPodcastEpisode, levenshtein: number }>}
+ */
 module.exports.findMatchingEpisodesInFeed = (feed, searchTitle) => {
   searchTitle = searchTitle.toLowerCase().trim()
   if (!feed?.episodes) {
@@ -286,7 +372,6 @@ module.exports.findMatchingEpisodesInFeed = (feed, searchTitle) => {
   const matches = []
   feed.episodes.forEach((ep) => {
     if (!ep.title) return
-
     const epTitle = ep.title.toLowerCase().trim()
     if (epTitle === searchTitle) {
       matches.push({

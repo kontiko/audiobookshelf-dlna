@@ -24,6 +24,20 @@ class BookAuthor extends Model {
   }
 
   /**
+   * Get number of books for author
+   *
+   * @param {string} authorId
+   * @returns {Promise<number>}
+   */
+  static getCountForAuthor(authorId) {
+    return this.count({
+      where: {
+        authorId
+      }
+    })
+  }
+
+  /**
    * Initialize model
    * @param {import('../Database').sequelize} sequelize
    */
@@ -40,7 +54,13 @@ class BookAuthor extends Model {
         sequelize,
         modelName: 'bookAuthor',
         timestamps: true,
-        updatedAt: false
+        updatedAt: false,
+        indexes: [
+          {
+            name: 'bookAuthor_authorId',
+            fields: ['authorId']
+          }
+        ]
       }
     )
 

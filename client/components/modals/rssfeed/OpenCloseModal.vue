@@ -10,9 +10,7 @@
         <p class="text-lg font-semibold mb-4">{{ $strings.HeaderRSSFeedIsOpen }}</p>
 
         <div class="w-full relative">
-          <ui-text-input v-model="currentFeed.feedUrl" readonly />
-
-          <span class="material-icons absolute right-2 bottom-2 p-0.5 text-base transition-transform duration-100 text-gray-300 hover:text-white transform hover:scale-125 cursor-pointer" @click="copyToClipboard(currentFeed.feedUrl)">content_copy</span>
+          <ui-text-input :value="feedUrl" readonly show-copy />
         </div>
 
         <div v-if="currentFeed.meta" class="mt-5">
@@ -111,8 +109,11 @@ export default {
     userIsAdminOrUp() {
       return this.$store.getters['user/getIsAdminOrUp']
     },
+    feedUrl() {
+      return this.currentFeed ? `${window.origin}${this.$config.routerBasePath}${this.currentFeed.feedUrl}` : ''
+    },
     demoFeedUrl() {
-      return `${window.origin}/feed/${this.newFeedSlug}`
+      return `${window.origin}${this.$config.routerBasePath}/feed/${this.newFeedSlug}`
     },
     isHttp() {
       return window.origin.startsWith('http://')
@@ -121,14 +122,14 @@ export default {
   methods: {
     openFeed() {
       if (!this.newFeedSlug) {
-        this.$toast.error('Must set a feed slug')
+        this.$toast.error(this.$strings.ToastSlugRequired)
         return
       }
 
       const sanitized = this.$sanitizeSlug(this.newFeedSlug)
       if (this.newFeedSlug !== sanitized) {
         this.newFeedSlug = sanitized
-        this.$toast.warning('Slug had to be modified - Run again')
+        this.$toast.warning(this.$strings.ToastSlugMustChange)
         return
       }
 
@@ -139,7 +140,7 @@ export default {
         slug: this.newFeedSlug,
         metadataDetails: this.metadataDetails
       }
-      if (this.$isDev) payload.serverAddress = `http://localhost:3333${this.$config.routerBasePath}`
+      if (this.$isDev) payload.serverAddress = process.env.serverUrl
 
       console.log('Payload', payload)
       this.$axios
@@ -156,9 +157,6 @@ export default {
         .finally(() => {
           this.processing = false
         })
-    },
-    copyToClipboard(str) {
-      this.$copyToClipboard(str, this)
     },
     closeFeed() {
       this.processing = true

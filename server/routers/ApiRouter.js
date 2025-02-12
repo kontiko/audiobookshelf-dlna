@@ -1,5 +1,6 @@
 const express = require('express')
 const Path = require('path')
+const sequelize = require('sequelize')
 
 const Logger = require('../Logger')
 const Database = require('../Database')
@@ -9,6 +10,7 @@ const fs = require('../libs/fsExtra')
 const date = require('../libs/dateAndTime')
 
 const CacheManager = require('../managers/CacheManager')
+const RssFeedManager = require('../managers/RssFeedManager')
 
 const LibraryController = require('../controllers/LibraryController')
 const UserController = require('../controllers/UserController')
@@ -33,24 +35,25 @@ const MiscController = require('../controllers/MiscController')
 const ShareController = require('../controllers/ShareController')
 
 const DLNAController = require('../controllers/DLNAController')
-const Author = require('../objects/entities/Author')
-const Series = require('../objects/entities/Series')
+const { getTitleIgnorePrefix } = require('../utils/index')
 
 class ApiRouter {
   constructor(Server) {
     /** @type {import('../Auth')} */
     this.auth = Server.auth
+    /** @type {import('../managers/PlaybackSessionManager')} */
     this.playbackSessionManager = Server.playbackSessionManager
+    /** @type {import('../managers/AbMergeManager')} */
     this.abMergeManager = Server.abMergeManager
     /** @type {import('../managers/BackupManager')} */
     this.backupManager = Server.backupManager
-    /** @type {import('../Watcher')} */
-    this.watcher = Server.watcher
+    /** @type {import('../managers/PodcastManager')} */
     this.podcastManager = Server.podcastManager
+    /** @type {import('../managers/AudioMetadataManager')} */
     this.audioMetadataManager = Server.audioMetadataManager
-    this.rssFeedManager = Server.rssFeedManager
+    /** @type {import('../managers/CronManager')} */
     this.cronManager = Server.cronManager
-    this.notificationManager = Server.notificationManager
+    /** @type {import('../managers/EmailManager')} */
     this.emailManager = Server.emailManager
     this.apiCacheManager = Server.apiCacheManager
     this.DLNAManager = Server.DLNAManager
@@ -92,6 +95,7 @@ class ApiRouter {
     this.router.get('/libraries/:id/opml', LibraryController.middleware.bind(this), LibraryController.getOPMLFile.bind(this))
     this.router.post('/libraries/order', LibraryController.reorder.bind(this))
     this.router.post('/libraries/:id/remove-metadata', LibraryController.middleware.bind(this), LibraryController.removeAllMetadataFiles.bind(this))
+    this.router.get('/libraries/:id/podcast-titles', LibraryController.middleware.bind(this), LibraryController.getPodcastTitles.bind(this))
 
     //
     // Item Routes
@@ -103,7 +107,6 @@ class ApiRouter {
     this.router.post('/items/batch/scan', LibraryItemController.batchScan.bind(this))
 
     this.router.get('/items/:id', LibraryItemController.middleware.bind(this), LibraryItemController.findOne.bind(this))
-    this.router.patch('/items/:id', LibraryItemController.middleware.bind(this), LibraryItemController.update.bind(this))
     this.router.delete('/items/:id', LibraryItemController.middleware.bind(this), LibraryItemController.delete.bind(this))
     this.router.get('/items/:id/download', LibraryItemController.middleware.bind(this), LibraryItemController.download.bind(this))
     this.router.patch('/items/:id/media', LibraryItemController.middleware.bind(this), LibraryItemController.updateMedia.bind(this))
@@ -116,7 +119,7 @@ class ApiRouter {
     this.router.post('/items/:id/play/:episodeId', LibraryItemController.middleware.bind(this), LibraryItemController.startEpisodePlaybackSession.bind(this))
     this.router.patch('/items/:id/tracks', LibraryItemController.middleware.bind(this), LibraryItemController.updateTracks.bind(this))
     this.router.post('/items/:id/scan', LibraryItemController.middleware.bind(this), LibraryItemController.scan.bind(this))
-    this.router.get('/items/:id/tone-object', LibraryItemController.middleware.bind(this), LibraryItemController.getToneMetadataObject.bind(this))
+    this.router.get('/items/:id/metadata-object', LibraryItemController.middleware.bind(this), LibraryItemController.getMetadataObject.bind(this))
     this.router.post('/items/:id/chapters', LibraryItemController.middleware.bind(this), LibraryItemController.updateMediaChapters.bind(this))
     this.router.get('/items/:id/ffprobe/:fileid', LibraryItemController.middleware.bind(this), LibraryItemController.getFFprobeData.bind(this))
     this.router.get('/items/:id/file/:fileid', LibraryItemController.middleware.bind(this), LibraryItemController.getLibraryFile.bind(this))
@@ -175,18 +178,17 @@ class ApiRouter {
     this.router.get('/me/progress/:id/remove-from-continue-listening', MeController.removeItemFromContinueListening.bind(this))
     this.router.get('/me/progress/:id/:episodeId?', MeController.getMediaProgress.bind(this))
     this.router.patch('/me/progress/batch/update', MeController.batchUpdateMediaProgress.bind(this))
-    this.router.patch('/me/progress/:id', MeController.createUpdateMediaProgress.bind(this))
+    this.router.patch('/me/progress/:libraryItemId/:episodeId?', MeController.createUpdateMediaProgress.bind(this))
     this.router.delete('/me/progress/:id', MeController.removeMediaProgress.bind(this))
-    this.router.patch('/me/progress/:id/:episodeId', MeController.createUpdateEpisodeMediaProgress.bind(this))
     this.router.post('/me/item/:id/bookmark', MeController.createBookmark.bind(this))
     this.router.patch('/me/item/:id/bookmark', MeController.updateBookmark.bind(this))
     this.router.delete('/me/item/:id/bookmark/:time', MeController.removeBookmark.bind(this))
     this.router.patch('/me/password', MeController.updatePassword.bind(this))
-    this.router.post('/me/sync-local-progress', MeController.syncLocalMediaProgress.bind(this)) // TODO: Deprecated. Removed from Android. Only used in iOS app now.
     this.router.get('/me/items-in-progress', MeController.getAllLibraryItemsInProgress.bind(this))
     this.router.get('/me/series/:id/remove-from-continue-listening', MeController.removeSeriesFromContinueListening.bind(this))
     this.router.get('/me/series/:id/readd-to-continue-listening', MeController.readdSeriesFromContinueListening.bind(this))
     this.router.get('/me/stats/year/:year', MeController.getStatsForYear.bind(this))
+    this.router.post('/me/ereader-devices', MeController.updateUserEReaderDevices.bind(this))
 
     //
     // Backup Routes
@@ -212,7 +214,7 @@ class ApiRouter {
     this.router.patch('/authors/:id', AuthorController.middleware.bind(this), AuthorController.update.bind(this))
     this.router.delete('/authors/:id', AuthorController.middleware.bind(this), AuthorController.delete.bind(this))
     this.router.post('/authors/:id/match', AuthorController.middleware.bind(this), AuthorController.match.bind(this))
-    this.router.get('/authors/:id/image', AuthorController.middleware.bind(this), AuthorController.getImage.bind(this))
+    this.router.get('/authors/:id/image', AuthorController.getImage.bind(this))
     this.router.post('/authors/:id/image', AuthorController.middleware.bind(this), AuthorController.uploadImage.bind(this))
     this.router.delete('/authors/:id/image', AuthorController.middleware.bind(this), AuthorController.deleteImage.bind(this))
 
@@ -241,7 +243,8 @@ class ApiRouter {
     //
     this.router.post('/podcasts', PodcastController.create.bind(this))
     this.router.post('/podcasts/feed', PodcastController.getPodcastFeed.bind(this))
-    this.router.post('/podcasts/opml', PodcastController.getFeedsFromOPMLText.bind(this))
+    this.router.post('/podcasts/opml/parse', PodcastController.getFeedsFromOPMLText.bind(this))
+    this.router.post('/podcasts/opml/create', PodcastController.bulkCreatePodcastsFromOpmlFeedUrls.bind(this))
     this.router.get('/podcasts/:id/checknew', PodcastController.middleware.bind(this), PodcastController.checkNewEpisodes.bind(this))
     this.router.get('/podcasts/:id/downloads', PodcastController.middleware.bind(this), PodcastController.getEpisodeDownloads.bind(this))
     this.router.get('/podcasts/:id/clear-queue', PodcastController.middleware.bind(this), PodcastController.clearEpisodeDownloadQueue.bind(this))
@@ -281,7 +284,6 @@ class ApiRouter {
     this.router.get('/search/podcast', SearchController.findPodcasts.bind(this))
     this.router.get('/search/authors', SearchController.findAuthor.bind(this))
     this.router.get('/search/chapters', SearchController.findChapters.bind(this))
-    this.router.get('/search/tracks', SearchController.findMusicTrack.bind(this))
 
     //
     // Cache Routes (Admin and up)
@@ -352,87 +354,38 @@ class ApiRouter {
   //
   /**
    * Remove library item and associated entities
-   * @param {string} mediaType
    * @param {string} libraryItemId
    * @param {string[]} mediaItemIds array of bookId or podcastEpisodeId
    */
-  async handleDeleteLibraryItem(mediaType, libraryItemId, mediaItemIds) {
-    // Remove media progress for this library item from all users
-    const users = await Database.userModel.getOldUsers()
-    for (const user of users) {
-      for (const mediaProgress of user.getAllMediaProgressForLibraryItem(libraryItemId)) {
-        await Database.removeMediaProgress(mediaProgress.id)
+  async handleDeleteLibraryItem(libraryItemId, mediaItemIds) {
+    const numProgressRemoved = await Database.mediaProgressModel.destroy({
+      where: {
+        mediaItemId: mediaItemIds
       }
-    }
-
-    // TODO: Remove open sessions for library item
-
-    // Remove series if empty
-    if (mediaType === 'book') {
-      // TODO: update filter data
-      const bookSeries = await Database.bookSeriesModel.findAll({
-        where: {
-          bookId: mediaItemIds[0]
-        },
-        include: {
-          model: Database.seriesModel,
-          include: {
-            model: Database.bookModel
-          }
-        }
-      })
-      for (const bs of bookSeries) {
-        if (bs.series.books.length === 1) {
-          await this.removeEmptySeries(bs.series)
-        }
-      }
+    })
+    if (numProgressRemoved > 0) {
+      Logger.info(`[ApiRouter] Removed ${numProgressRemoved} media progress entries for library item "${libraryItemId}"`)
     }
 
     // remove item from playlists
-    const playlistsWithItem = await Database.playlistModel.getPlaylistsForMediaItemIds(mediaItemIds)
-    for (const playlist of playlistsWithItem) {
-      let numMediaItems = playlist.playlistMediaItems.length
-
-      let order = 1
-      // Remove items in playlist and re-order
-      for (const playlistMediaItem of playlist.playlistMediaItems) {
-        if (mediaItemIds.includes(playlistMediaItem.mediaItemId)) {
-          await playlistMediaItem.destroy()
-          numMediaItems--
-        } else {
-          if (playlistMediaItem.order !== order) {
-            playlistMediaItem.update({
-              order
-            })
-          }
-          order++
-        }
-      }
-
-      // If playlist is now empty then remove it
-      const jsonExpanded = await playlist.getOldJsonExpanded()
-      if (!numMediaItems) {
-        Logger.info(`[ApiRouter] Playlist "${playlist.name}" has no more items - removing it`)
-        await playlist.destroy()
-        SocketAuthority.clientEmitter(playlist.userId, 'playlist_removed', jsonExpanded)
-      } else {
-        SocketAuthority.clientEmitter(playlist.userId, 'playlist_updated', jsonExpanded)
-      }
-    }
+    await Database.playlistModel.removeMediaItemsFromPlaylists(mediaItemIds)
 
     // Close rss feed - remove from db and emit socket event
-    await this.rssFeedManager.closeFeedForEntityId(libraryItemId)
+    await RssFeedManager.closeFeedForEntityId(libraryItemId)
 
     // purge cover cache
     await CacheManager.purgeCoverCache(libraryItemId)
 
-    const itemMetadataPath = Path.join(global.MetadataPath, 'items', libraryItemId)
-    if (await fs.pathExists(itemMetadataPath)) {
-      Logger.debug(`[ApiRouter] Removing item metadata path "${itemMetadataPath}"`)
-      await fs.remove(itemMetadataPath)
+    // Remove metadata file if in /metadata/items dir
+    if (global.MetadataPath) {
+      const itemMetadataPath = Path.join(global.MetadataPath, 'items', libraryItemId)
+      if (await fs.pathExists(itemMetadataPath)) {
+        Logger.info(`[ApiRouter] Removing item metadata at "${itemMetadataPath}"`)
+        await fs.remove(itemMetadataPath)
+      }
     }
 
-    await Database.removeLibraryItem(libraryItemId)
+    await Database.libraryItemModel.removeById(libraryItemId)
 
     SocketAuthority.emitter('item_removed', {
       id: libraryItemId
@@ -440,33 +393,75 @@ class ApiRouter {
   }
 
   /**
-   * Used when a series is removed from a book
-   * Series is removed if it only has 1 book
+   * After deleting book(s), remove empty series
    *
-   * @param {string} bookId
    * @param {string[]} seriesIds
    */
-  async checkRemoveEmptySeries(bookId, seriesIds) {
+  async checkRemoveEmptySeries(seriesIds) {
     if (!seriesIds?.length) return
 
-    const bookSeries = await Database.bookSeriesModel.findAll({
+    const series = await Database.seriesModel.findAll({
       where: {
-        bookId,
-        seriesId: seriesIds
+        id: seriesIds
       },
-      include: [
-        {
-          model: Database.seriesModel,
-          include: {
-            model: Database.bookModel
-          }
-        }
-      ]
-    })
-    for (const bs of bookSeries) {
-      if (bs.series.books.length === 1) {
-        await this.removeEmptySeries(bs.series)
+      attributes: ['id', 'name', 'libraryId'],
+      include: {
+        model: Database.bookModel,
+        attributes: ['id']
       }
+    })
+
+    for (const s of series) {
+      if (!s.books.length) {
+        await this.removeEmptySeries(s)
+      }
+    }
+  }
+
+  /**
+   * Remove authors with no books and unset asin, description and imagePath
+   * Note: Other implementation is in BookScanner.checkAuthorsRemovedFromBooks (can be merged)
+   *
+   * @param {string[]} authorIds
+   * @returns {Promise<void>}
+   */
+  async checkRemoveAuthorsWithNoBooks(authorIds) {
+    if (!authorIds?.length) return
+
+    const bookAuthorsToRemove = (
+      await Database.authorModel.findAll({
+        where: [
+          {
+            id: authorIds,
+            asin: {
+              [sequelize.Op.or]: [null, '']
+            },
+            description: {
+              [sequelize.Op.or]: [null, '']
+            },
+            imagePath: {
+              [sequelize.Op.or]: [null, '']
+            }
+          },
+          sequelize.where(sequelize.literal('(SELECT count(*) FROM bookAuthors ba WHERE ba.authorId = author.id)'), 0)
+        ],
+        attributes: ['id', 'name', 'libraryId'],
+        raw: true
+      })
+    ).map((au) => ({ id: au.id, name: au.name, libraryId: au.libraryId }))
+
+    if (bookAuthorsToRemove.length) {
+      await Database.authorModel.destroy({
+        where: {
+          id: bookAuthorsToRemove.map((au) => au.id)
+        }
+      })
+      bookAuthorsToRemove.forEach(({ id, name, libraryId }) => {
+        Database.removeAuthorFromFilterData(libraryId, id)
+        // TODO: Clients were expecting full author in payload but its unnecessary
+        SocketAuthority.emitter('author_removed', { id, libraryId })
+        Logger.info(`[ApiRouter] Removed author "${name}" with no books`)
+      })
     }
   }
 
@@ -475,15 +470,17 @@ class ApiRouter {
    * @param {import('../models/Series')} series
    */
   async removeEmptySeries(series) {
-    await this.rssFeedManager.closeFeedForEntityId(series.id)
+    await RssFeedManager.closeFeedForEntityId(series.id)
     Logger.info(`[ApiRouter] Series "${series.name}" is now empty. Removing series`)
-    await Database.removeSeries(series.id)
+
     // Remove series from library filter data
     Database.removeSeriesFromFilterData(series.libraryId, series.id)
     SocketAuthority.emitter('series_removed', {
       id: series.id,
       libraryId: series.libraryId
     })
+
+    await series.destroy()
   }
 
   async getUserListeningSessionsHelper(userId) {
@@ -540,106 +537,6 @@ class ApiRouter {
       listeningStats.totalTime += sessionTimeListening
     })
     return listeningStats
-  }
-
-  async createAuthorsAndSeriesForItemUpdate(mediaPayload, libraryId) {
-    if (mediaPayload.metadata) {
-      const mediaMetadata = mediaPayload.metadata
-
-      // Create new authors if in payload
-      if (mediaMetadata.authors?.length) {
-        const newAuthors = []
-        for (let i = 0; i < mediaMetadata.authors.length; i++) {
-          const authorName = (mediaMetadata.authors[i].name || '').trim()
-          if (!authorName) {
-            Logger.error(`[ApiRouter] Invalid author object, no name`, mediaMetadata.authors[i])
-            mediaMetadata.authors[i].id = null
-            continue
-          }
-
-          if (mediaMetadata.authors[i].id?.startsWith('new')) {
-            mediaMetadata.authors[i].id = null
-          }
-
-          // Ensure the ID for the author exists
-          if (mediaMetadata.authors[i].id && !(await Database.checkAuthorExists(libraryId, mediaMetadata.authors[i].id))) {
-            Logger.warn(`[ApiRouter] Author id "${mediaMetadata.authors[i].id}" does not exist`)
-            mediaMetadata.authors[i].id = null
-          }
-
-          if (!mediaMetadata.authors[i].id) {
-            let author = await Database.authorModel.getOldByNameAndLibrary(authorName, libraryId)
-            if (!author) {
-              author = new Author()
-              author.setData(mediaMetadata.authors[i], libraryId)
-              Logger.debug(`[ApiRouter] Created new author "${author.name}"`)
-              newAuthors.push(author)
-              // Update filter data
-              Database.addAuthorToFilterData(libraryId, author.name, author.id)
-            }
-
-            // Update ID in original payload
-            mediaMetadata.authors[i].id = author.id
-          }
-        }
-        // Remove authors without an id
-        mediaMetadata.authors = mediaMetadata.authors.filter((au) => !!au.id)
-        if (newAuthors.length) {
-          await Database.createBulkAuthors(newAuthors)
-          SocketAuthority.emitter(
-            'authors_added',
-            newAuthors.map((au) => au.toJSON())
-          )
-        }
-      }
-
-      // Create new series if in payload
-      if (mediaMetadata.series && mediaMetadata.series.length) {
-        const newSeries = []
-        for (let i = 0; i < mediaMetadata.series.length; i++) {
-          const seriesName = (mediaMetadata.series[i].name || '').trim()
-          if (!seriesName) {
-            Logger.error(`[ApiRouter] Invalid series object, no name`, mediaMetadata.series[i])
-            mediaMetadata.series[i].id = null
-            continue
-          }
-
-          if (mediaMetadata.series[i].id?.startsWith('new')) {
-            mediaMetadata.series[i].id = null
-          }
-
-          // Ensure the ID for the series exists
-          if (mediaMetadata.series[i].id && !(await Database.checkSeriesExists(libraryId, mediaMetadata.series[i].id))) {
-            Logger.warn(`[ApiRouter] Series id "${mediaMetadata.series[i].id}" does not exist`)
-            mediaMetadata.series[i].id = null
-          }
-
-          if (!mediaMetadata.series[i].id) {
-            let seriesItem = await Database.seriesModel.getOldByNameAndLibrary(seriesName, libraryId)
-            if (!seriesItem) {
-              seriesItem = new Series()
-              seriesItem.setData(mediaMetadata.series[i], libraryId)
-              Logger.debug(`[ApiRouter] Created new series "${seriesItem.name}"`)
-              newSeries.push(seriesItem)
-              // Update filter data
-              Database.addSeriesToFilterData(libraryId, seriesItem.name, seriesItem.id)
-            }
-
-            // Update ID in original payload
-            mediaMetadata.series[i].id = seriesItem.id
-          }
-        }
-        // Remove series without an id
-        mediaMetadata.series = mediaMetadata.series.filter((se) => se.id)
-        if (newSeries.length) {
-          await Database.createBulkSeries(newSeries)
-          SocketAuthority.emitter(
-            'multiple_series_added',
-            newSeries.map((se) => se.toJSON())
-          )
-        }
-      }
-    }
   }
 }
 module.exports = ApiRouter

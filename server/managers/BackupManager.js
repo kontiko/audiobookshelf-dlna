@@ -14,6 +14,8 @@ const fileUtils = require('../utils/fileUtils')
 const { getFileSize } = require('../utils/fileUtils')
 
 const Backup = require('../objects/Backup')
+const CacheManager = require('./CacheManager')
+const NotificationManager = require('./NotificationManager')
 
 class BackupManager {
   constructor() {
@@ -29,6 +31,10 @@ class BackupManager {
     return global.ServerSettings.backupPath
   }
 
+  get backupPathEnvSet() {
+    return !!process.env.BACKUP_PATH
+  }
+
   get backupSchedule() {
     return global.ServerSettings.backupSchedule
   }
@@ -38,7 +44,7 @@ class BackupManager {
   }
 
   get maxBackupSize() {
-    return global.ServerSettings.maxBackupSize || 1
+    return global.ServerSettings.maxBackupSize || Infinity
   }
 
   async init() {
@@ -212,7 +218,9 @@ class BackupManager {
     Logger.info(`[BackupManager] Saved backup sqlite file at "${dbPath}"`)
 
     // Extract /metadata/items and /metadata/authors folders
+    await fs.ensureDir(this.ItemsMetadataPath)
     await zip.extract('metadata-items/', this.ItemsMetadataPath)
+    await fs.ensureDir(this.AuthorsMetadataPath)
     await zip.extract('metadata-authors/', this.AuthorsMetadataPath)
     await zip.close()
 
@@ -221,6 +229,9 @@ class BackupManager {
 
     // Reset api cache, set hooks again
     await apiCacheManager.reset()
+
+    // Clear metadata cache
+    await CacheManager.purgeAll()
 
     res.sendStatus(200)
 
@@ -288,6 +299,8 @@ class BackupManager {
     // Create backup sqlite file
     const sqliteBackupPath = await this.backupSqliteDb(newBackup).catch((error) => {
       Logger.error(`[BackupManager] Failed to backup sqlite db`, error)
+      const errorMsg = error?.message || error || 'Unknown Error'
+      NotificationManager.onBackupFailed(errorMsg)
       return false
     })
 
@@ -298,6 +311,8 @@ class BackupManager {
     // Zip sqlite file, /metadata/items, and /metadata/authors folders
     const zipResult = await this.zipBackup(sqliteBackupPath, newBackup).catch((error) => {
       Logger.error(`[BackupManager] Backup Failed ${error}`)
+      const errorMsg = error?.message || error || 'Unknown Error'
+      NotificationManager.onBackupFailed(errorMsg)
       return false
     })
 
@@ -318,13 +333,18 @@ class BackupManager {
     }
 
     // Check remove oldest backup
-    if (this.backups.length > this.backupsToKeep) {
+    const removeOldest = this.backups.length > this.backupsToKeep
+    if (removeOldest) {
       this.backups.sort((a, b) => a.createdAt - b.createdAt)
 
       const oldBackup = this.backups.shift()
       Logger.debug(`[BackupManager] Removing old backup ${oldBackup.id}`)
       this.removeBackup(oldBackup)
     }
+
+    // Notification for backup successfully completed
+    NotificationManager.onBackupCompleted(newBackup, this.backups.length, removeOldest)
+
     return true
   }
 
@@ -342,7 +362,6 @@ class BackupManager {
   /**
    * @see https://github.com/TryGhost/node-sqlite3/pull/1116
    * @param {Backup} backup
-   * @promise
    */
   backupSqliteDb(backup) {
     const db = new sqlite3.Database(Database.dbPath)
@@ -415,14 +434,16 @@ class BackupManager {
         reject(err)
       })
       archive.on('progress', ({ fs: fsobj }) => {
-        const maxBackupSizeInBytes = this.maxBackupSize * 1000 * 1000 * 1000
-        if (fsobj.processedBytes > maxBackupSizeInBytes) {
-          Logger.error(`[BackupManager] Archiver is too large - aborting to prevent endless loop, Bytes Processed: ${fsobj.processedBytes}`)
-          archive.abort()
-          setTimeout(() => {
-            this.removeBackup(backup)
-            output.destroy('Backup too large') // Promise is reject in write stream error evt
-          }, 500)
+        if (this.maxBackupSize !== Infinity) {
+          const maxBackupSizeInBytes = this.maxBackupSize * 1000 * 1000 * 1000
+          if (fsobj.processedBytes > maxBackupSizeInBytes) {
+            Logger.error(`[BackupManager] Archiver is too large - aborting to prevent endless loop, Bytes Processed: ${fsobj.processedBytes}`)
+            archive.abort()
+            setTimeout(() => {
+              this.removeBackup(backup)
+              output.destroy('Backup too large') // Promise is reject in write stream error evt
+            }, 500)
+          }
         }
       })
 

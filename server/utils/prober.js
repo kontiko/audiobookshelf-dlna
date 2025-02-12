@@ -143,6 +143,7 @@ function parseChapters(_chapters) {
     .map((chap) => {
       let title = chap['TAG:title'] || chap.title || ''
       if (!title && chap.tags?.title) title = chap.tags.title
+      title = title.trim()
 
       const timebase = chap.time_base?.includes('/') ? Number(chap.time_base.split('/')[1]) : 1
       const start = !isNullOrNaN(chap.start_time) ? Number(chap.start_time) : !isNullOrNaN(chap.start) ? Number(chap.start) / timebase : 0
@@ -189,6 +190,7 @@ function parseTags(format, verbose) {
     file_tag_genre: tryGrabTags(format, 'genre', 'tcon', 'tco'),
     file_tag_series: tryGrabTags(format, 'series', 'show', 'mvnm'),
     file_tag_seriespart: tryGrabTags(format, 'series-part', 'episode_id', 'mvin', 'part'),
+    file_tag_grouping: tryGrabTags(format, 'grouping', 'grp1'),
     file_tag_isbn: tryGrabTags(format, 'isbn'), // custom
     file_tag_language: tryGrabTags(format, 'language', 'lang'),
     file_tag_asin: tryGrabTags(format, 'asin', 'audible_asin'), // custom

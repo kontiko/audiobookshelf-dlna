@@ -16,15 +16,11 @@ class PlaylistMediaItem extends Model {
     this.playlistId
     /** @type {Date} */
     this.createdAt
-  }
 
-  static removeByIds(playlistId, mediaItemId) {
-    return this.destroy({
-      where: {
-        playlistId,
-        mediaItemId
-      }
-    })
+    // Expanded properties
+
+    /** @type {import('./Book')|import('./PodcastEpisode')} - only set when expanded */
+    this.mediaItem
   }
 
   getMediaItem(options) {
@@ -45,7 +41,7 @@ class PlaylistMediaItem extends Model {
           defaultValue: DataTypes.UUIDV4,
           primaryKey: true
         },
-        mediaItemId: DataTypes.UUIDV4,
+        mediaItemId: DataTypes.UUID,
         mediaItemType: DataTypes.STRING,
         order: DataTypes.INTEGER
       },

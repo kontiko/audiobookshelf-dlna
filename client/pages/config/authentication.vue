@@ -25,7 +25,7 @@
           <p class="text-lg pl-4">{{ $strings.HeaderOpenIDConnectAuthentication }}</p>
           <ui-tooltip :text="$strings.LabelClickForMoreInfo" class="inline-flex ml-2">
             <a href="https://www.audiobookshelf.org/guides/oidc_authentication" target="_blank" class="inline-flex">
-              <span class="material-icons text-xl w-5 text-gray-200">help_outline</span>
+              <span class="material-symbols text-xl w-5 text-gray-200">help_outline</span>
             </a>
           </ui-tooltip>
         </div>
@@ -38,7 +38,7 @@
               </div>
               <div class="w-36 mx-1 mt-[1.375rem]">
                 <ui-btn class="h-[2.375rem] text-sm inline-flex items-center justify-center w-full" type="button" :padding-y="0" :padding-x="4" @click.stop="autoPopulateOIDCClick">
-                  <span class="material-icons text-base">auto_fix_high</span>
+                  <span class="material-symbols text-base">auto_fix_high</span>
                   <span class="whitespace-nowrap break-keep pl-1">Auto-populate</span></ui-btn
                 >
               </div>
@@ -63,6 +63,20 @@
 
             <ui-multi-select ref="redirectUris" v-model="newAuthSettings.authOpenIDMobileRedirectURIs" :items="newAuthSettings.authOpenIDMobileRedirectURIs" :label="$strings.LabelMobileRedirectURIs" class="mb-2" :menuDisabled="true" :disabled="savingSettings" />
             <p class="sm:pl-4 text-sm text-gray-300 mb-2" v-html="$strings.LabelMobileRedirectURIsDescription" />
+
+            <div class="flex sm:items-center flex-col sm:flex-row pt-1 mb-2">
+              <div class="w-44">
+                <ui-dropdown v-model="newAuthSettings.authOpenIDSubfolderForRedirectURLs" small :items="subfolderOptions" :label="$strings.LabelWebRedirectURLsSubfolder" :disabled="savingSettings" />
+              </div>
+              <div class="mt-2 sm:mt-5">
+                <p class="sm:pl-4 text-sm text-gray-300">{{ $strings.LabelWebRedirectURLsDescription }}</p>
+                <p class="sm:pl-4 text-sm text-gray-300 mb-2">
+                  <code>{{ webCallbackURL }}</code>
+                  <br />
+                  <code>{{ mobileAppCallbackURL }}</code>
+                </p>
+              </div>
+            </div>
 
             <ui-text-input-with-label ref="buttonTextInput" v-model="newAuthSettings.authOpenIDButtonText" :disabled="savingSettings" :label="$strings.LabelButtonText" class="mb-2" />
 
@@ -164,6 +178,27 @@ export default {
           value: 'username'
         }
       ]
+    },
+    subfolderOptions() {
+      const options = [
+        {
+          text: 'None',
+          value: ''
+        }
+      ]
+      if (this.$config.routerBasePath) {
+        options.push({
+          text: this.$config.routerBasePath,
+          value: this.$config.routerBasePath
+        })
+      }
+      return options
+    },
+    webCallbackURL() {
+      return `https://<your.server.com>${this.newAuthSettings.authOpenIDSubfolderForRedirectURLs ? this.newAuthSettings.authOpenIDSubfolderForRedirectURLs : ''}/auth/openid/callback`
+    },
+    mobileAppCallbackURL() {
+      return `https://<your.server.com>${this.newAuthSettings.authOpenIDSubfolderForRedirectURLs ? this.newAuthSettings.authOpenIDSubfolderForRedirectURLs : ''}/auth/openid/mobile-redirect`
     }
   },
   methods: {
@@ -317,7 +352,7 @@ export default {
         })
         .catch((error) => {
           console.error('Failed to update server settings', error)
-          this.$toast.error(this.$strings.ToastServerSettingsUpdateFailed)
+          this.$toast.error(this.$strings.ToastFailedToUpdate)
         })
         .finally(() => {
           this.savingSettings = false
@@ -325,7 +360,8 @@ export default {
     },
     init() {
       this.newAuthSettings = {
-        ...this.authSettings
+        ...this.authSettings,
+        authOpenIDSubfolderForRedirectURLs: this.authSettings.authOpenIDSubfolderForRedirectURLs === undefined ? this.$config.routerBasePath : this.authSettings.authOpenIDSubfolderForRedirectURLs
       }
       this.enableLocalAuth = this.authMethods.includes('local')
       this.enableOpenIDAuth = this.authMethods.includes('openid')

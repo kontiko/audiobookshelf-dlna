@@ -10,6 +10,7 @@ export const state = () => ({
   showEditPodcastEpisode: false,
   showViewPodcastEpisodeModal: false,
   showRSSFeedOpenCloseModal: false,
+  showShareModal: false,
   showConfirmPrompt: false,
   showRawCoverPreviewModal: false,
   confirmPromptOptions: null,
@@ -22,6 +23,7 @@ export const state = () => ({
   selectedAuthor: null,
   selectedMediaItems: [],
   selectedRawCoverUrl: null,
+  selectedMediaItemShare: null,
   isCasting: false, // Actively casting
   isChromecastInitialized: false, // Script loadeds
   dlnaDevice: '',
@@ -72,13 +74,13 @@ export const state = () => ({
     }
   ],
   podcastTypes: [
-    { text: 'Episodic', value: 'episodic' },
-    { text: 'Serial', value: 'serial' }
+    { text: 'Episodic', value: 'episodic', descriptionKey: 'LabelEpisodic' },
+    { text: 'Serial', value: 'serial', descriptionKey: 'LabelSerial' }
   ],
   episodeTypes: [
-    { text: 'Full', value: 'full' },
-    { text: 'Trailer', value: 'trailer' },
-    { text: 'Bonus', value: 'bonus' }
+    { text: 'Full', value: 'full', descriptionKey: 'LabelFull' },
+    { text: 'Trailer', value: 'trailer', descriptionKey: 'LabelTrailer' },
+    { text: 'Bonus', value: 'bonus', descriptionKey: 'LabelBonus' }
   ],
   libraryIcons: ['database', 'audiobookshelf', 'books-1', 'books-2', 'book-1', 'microphone-1', 'microphone-3', 'radio', 'podcast', 'rss', 'headphones', 'music', 'file-picture', 'rocket', 'power', 'star', 'heart']
 })
@@ -98,13 +100,7 @@ export const getters = {
       const userToken = rootGetters['user/getToken']
       const lastUpdate = libraryItem.updatedAt || Date.now()
       const libraryItemId = libraryItem.libraryItemId || libraryItem.id // Workaround for /users/:id page showing media progress covers
-
-      if (process.env.NODE_ENV !== 'production') {
-        // Testing
-        return `http://localhost:3333${rootState.routerBasePath}/api/items/${libraryItemId}/cover?token=${userToken}&ts=${lastUpdate}${raw ? '&raw=1' : ''}`
-      }
-
-      return `${rootState.routerBasePath}/api/items/${libraryItemId}/cover?token=${userToken}&ts=${lastUpdate}${raw ? '&raw=1' : ''}`
+      return `${rootState.routerBasePath}/api/items/${libraryItemId}/cover?ts=${lastUpdate}${raw ? '&raw=1' : ''}`
     },
   getLibraryItemCoverSrcById:
     (state, getters, rootState, rootGetters) =>
@@ -112,11 +108,7 @@ export const getters = {
       const placeholder = `${rootState.routerBasePath}/book_placeholder.jpg`
       if (!libraryItemId) return placeholder
       const userToken = rootGetters['user/getToken']
-      if (process.env.NODE_ENV !== 'production') {
-        // Testing
-        return `http://localhost:3333${rootState.routerBasePath}/api/items/${libraryItemId}/cover?token=${userToken}${raw ? '&raw=1' : ''}${timestamp ? `&ts=${timestamp}` : ''}`
-      }
-      return `${rootState.routerBasePath}/api/items/${libraryItemId}/cover?token=${userToken}${raw ? '&raw=1' : ''}${timestamp ? `&ts=${timestamp}` : ''}`
+      return `${rootState.routerBasePath}/api/items/${libraryItemId}/cover?${raw ? '&raw=1' : ''}${timestamp ? `&ts=${timestamp}` : ''}`
     },
   getIsBatchSelectingMediaItems: (state) => {
     return state.selectedMediaItems.length
@@ -164,6 +156,13 @@ export const mutations = {
   setRSSFeedOpenCloseModal(state, entity) {
     state.rssFeedEntity = entity
     state.showRSSFeedOpenCloseModal = true
+  },
+  setShowShareModal(state, val) {
+    state.showShareModal = val
+  },
+  setShareModal(state, mediaItemShare) {
+    state.selectedMediaItemShare = mediaItemShare
+    state.showShareModal = true
   },
   setShowConfirmPrompt(state, val) {
     state.showConfirmPrompt = val
@@ -230,16 +229,16 @@ export const mutations = {
       state.selectedMediaItems.push(item)
     }
   },
-  setDlnaDevices(state, val){
+  setDlnaDevices(state, val) {
     state.dlnaDevices = val
-    for (var device in devices){
-      if (device.host == state.dlnaDevice){
+    for (var device in state.dlnaDevices) {
+      if (device.host == state.dlnaDevice) {
         return
       }
     }
     state.dlnaDevice = ''
   },
-  setDlnaDevice(state, val){
+  setDlnaDevice(state, val) {
     state.dlnaDevice = val
   }
 }

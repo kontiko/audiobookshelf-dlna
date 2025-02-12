@@ -1,7 +1,5 @@
 const { DataTypes, Model, Sequelize } = require('sequelize')
 
-const oldCollection = require('../objects/Collection')
-
 class Collection extends Model {
   constructor(values, options) {
     super(values, options)
@@ -18,14 +16,20 @@ class Collection extends Model {
     this.updatedAt
     /** @type {Date} */
     this.createdAt
+
+    // Expanded properties
+
+    /** @type {import('./Book').BookExpandedWithLibraryItem[]} - only set when expanded */
+    this.books
   }
 
   /**
-   * Get all old collections toJSONExpanded, items filtered for user permissions
-   * @param {oldUser} [user]
+   * Get all toOldJSONExpanded, items filtered for user permissions
+   *
+   * @param {import('./User')} user
    * @param {string} [libraryId]
    * @param {string[]} [include]
-   * @returns {Promise<oldCollection[]>} oldCollection.toJSONExpanded
+   * @async
    */
   static async getOldCollectionsJsonExpanded(user, libraryId, include) {
     let collectionWhere = null
@@ -37,7 +41,7 @@ class Collection extends Model {
 
     // Optionally include rssfeed for collection
     const collectionIncludes = []
-    if (include.includes('rssfeed')) {
+    if (include?.includes('rssfeed')) {
       collectionIncludes.push({
         model: this.sequelize.models.feed
       })
@@ -73,8 +77,6 @@ class Collection extends Model {
     // TODO: Handle user permission restrictions on initial query
     return collections
       .map((c) => {
-        const oldCollection = this.getOldCollection(c)
-
         // Filter books using user permissions
         const books =
           c.books?.filter((b) => {
@@ -89,24 +91,18 @@ class Collection extends Model {
             return true
           }) || []
 
-        // Map to library items
-        const libraryItems = books.map((b) => {
-          const libraryItem = b.libraryItem
-          delete b.libraryItem
-          libraryItem.media = b
-          return this.sequelize.models.libraryItem.getOldLibraryItem(libraryItem)
-        })
-
         // Users with restricted permissions will not see this collection
-        if (!books.length && oldCollection.books.length) {
+        if (!books.length && c.books.length) {
           return null
         }
 
-        const collectionExpanded = oldCollection.toJSONExpanded(libraryItems)
+        this.books = books
+
+        const collectionExpanded = c.toOldJSONExpanded()
 
         // Map feed if found
         if (c.feeds?.length) {
-          collectionExpanded.rssFeed = this.sequelize.models.feed.getOldFeed(c.feeds[0])
+          collectionExpanded.rssFeed = c.feeds[0].toOldJSON()
         }
 
         return collectionExpanded
@@ -115,167 +111,36 @@ class Collection extends Model {
   }
 
   /**
-   * Get old collection toJSONExpanded, items filtered for user permissions
-   * @param {oldUser} [user]
-   * @param {string[]} [include]
-   * @returns {Promise<oldCollection>} oldCollection.toJSONExpanded
-   */
-  async getOldJsonExpanded(user, include) {
-    this.books =
-      (await this.getBooks({
-        include: [
-          {
-            model: this.sequelize.models.libraryItem
-          },
-          {
-            model: this.sequelize.models.author,
-            through: {
-              attributes: []
-            }
-          },
-          {
-            model: this.sequelize.models.series,
-            through: {
-              attributes: ['sequence']
-            }
-          }
-        ],
-        order: [Sequelize.literal('`collectionBook.order` ASC')]
-      })) || []
-
-    const oldCollection = this.sequelize.models.collection.getOldCollection(this)
-
-    // Filter books using user permissions
-    // TODO: Handle user permission restrictions on initial query
-    const books =
-      this.books?.filter((b) => {
-        if (user) {
-          if (b.tags?.length && !user.checkCanAccessLibraryItemWithTags(b.tags)) {
-            return false
-          }
-          if (b.explicit === true && !user.canAccessExplicitContent) {
-            return false
-          }
-        }
-        return true
-      }) || []
-
-    // Map to library items
-    const libraryItems = books.map((b) => {
-      const libraryItem = b.libraryItem
-      delete b.libraryItem
-      libraryItem.media = b
-      return this.sequelize.models.libraryItem.getOldLibraryItem(libraryItem)
-    })
-
-    // Users with restricted permissions will not see this collection
-    if (!books.length && oldCollection.books.length) {
-      return null
-    }
-
-    const collectionExpanded = oldCollection.toJSONExpanded(libraryItems)
-
-    if (include?.includes('rssfeed')) {
-      const feeds = await this.getFeeds()
-      if (feeds?.length) {
-        collectionExpanded.rssFeed = this.sequelize.models.feed.getOldFeed(feeds[0])
-      }
-    }
-
-    return collectionExpanded
-  }
-
-  /**
-   * Get old collection from Collection
-   * @param {Collection} collectionExpanded
-   * @returns {oldCollection}
-   */
-  static getOldCollection(collectionExpanded) {
-    const libraryItemIds = collectionExpanded.books?.map((b) => b.libraryItem?.id || null).filter((lid) => lid) || []
-    return new oldCollection({
-      id: collectionExpanded.id,
-      libraryId: collectionExpanded.libraryId,
-      name: collectionExpanded.name,
-      description: collectionExpanded.description,
-      books: libraryItemIds,
-      lastUpdate: collectionExpanded.updatedAt.valueOf(),
-      createdAt: collectionExpanded.createdAt.valueOf()
-    })
-  }
-
-  /**
    *
-   * @param {oldCollection} oldCollection
+   * @param {string} collectionId
    * @returns {Promise<Collection>}
    */
-  static createFromOld(oldCollection) {
-    const collection = this.getFromOld(oldCollection)
-    return this.create(collection)
-  }
-
-  static getFromOld(oldCollection) {
-    return {
-      id: oldCollection.id,
-      name: oldCollection.name,
-      description: oldCollection.description,
-      libraryId: oldCollection.libraryId
-    }
-  }
-
-  static removeById(collectionId) {
-    return this.destroy({
-      where: {
-        id: collectionId
-      }
-    })
-  }
-
-  /**
-   * Get old collection by id
-   * @param {string} collectionId
-   * @returns {Promise<oldCollection|null>} returns null if not found
-   */
-  static async getOldById(collectionId) {
-    if (!collectionId) return null
-    const collection = await this.findByPk(collectionId, {
-      include: {
-        model: this.sequelize.models.book,
-        include: this.sequelize.models.libraryItem
-      },
+  static async getExpandedById(collectionId) {
+    return this.findByPk(collectionId, {
+      include: [
+        {
+          model: this.sequelize.models.book,
+          include: [
+            {
+              model: this.sequelize.models.libraryItem
+            },
+            {
+              model: this.sequelize.models.author,
+              through: {
+                attributes: []
+              }
+            },
+            {
+              model: this.sequelize.models.series,
+              through: {
+                attributes: ['sequence']
+              }
+            }
+          ]
+        }
+      ],
       order: [[this.sequelize.models.book, this.sequelize.models.collectionBook, 'order', 'ASC']]
     })
-    if (!collection) return null
-    return this.getOldCollection(collection)
-  }
-
-  /**
-   * Get old collection from current
-   * @returns {Promise<oldCollection>}
-   */
-  async getOld() {
-    this.books =
-      (await this.getBooks({
-        include: [
-          {
-            model: this.sequelize.models.libraryItem
-          },
-          {
-            model: this.sequelize.models.author,
-            through: {
-              attributes: []
-            }
-          },
-          {
-            model: this.sequelize.models.series,
-            through: {
-              attributes: ['sequence']
-            }
-          }
-        ],
-        order: [Sequelize.literal('`collectionBook.order` ASC')]
-      })) || []
-
-    return this.sequelize.models.collection.getOldCollection(this)
   }
 
   /**
@@ -317,6 +182,110 @@ class Collection extends Model {
 
     library.hasMany(Collection)
     Collection.belongsTo(library)
+  }
+
+  /**
+   * Get all books in collection expanded with library item
+   *
+   * @returns {Promise<import('./Book').BookExpandedWithLibraryItem[]>}
+   */
+  getBooksExpandedWithLibraryItem() {
+    return this.getBooks({
+      include: [
+        {
+          model: this.sequelize.models.libraryItem
+        },
+        {
+          model: this.sequelize.models.author,
+          through: {
+            attributes: []
+          }
+        },
+        {
+          model: this.sequelize.models.series,
+          through: {
+            attributes: ['sequence']
+          }
+        }
+      ],
+      order: [Sequelize.literal('`collectionBook.order` ASC')]
+    })
+  }
+
+  /**
+   * Get toOldJSONExpanded, items filtered for user permissions
+   *
+   * @param {import('./User')|null} user
+   * @param {string[]} [include]
+   * @async
+   */
+  async getOldJsonExpanded(user, include) {
+    this.books = await this.getBooksExpandedWithLibraryItem()
+
+    // Filter books using user permissions
+    // TODO: Handle user permission restrictions on initial query
+    if (user) {
+      const books = this.books.filter((b) => {
+        if (b.tags?.length && !user.checkCanAccessLibraryItemWithTags(b.tags)) {
+          return false
+        }
+        if (b.explicit === true && !user.canAccessExplicitContent) {
+          return false
+        }
+        return true
+      })
+
+      // Users with restricted permissions will not see this collection
+      if (!books.length && this.books.length) {
+        return null
+      }
+
+      this.books = books
+    }
+
+    const collectionExpanded = this.toOldJSONExpanded()
+
+    if (include?.includes('rssfeed')) {
+      const feeds = await this.getFeeds()
+      if (feeds?.length) {
+        collectionExpanded.rssFeed = feeds[0].toOldJSON()
+      }
+    }
+
+    return collectionExpanded
+  }
+
+  /**
+   *
+   * @param {string[]} [libraryItemIds=[]]
+   * @returns
+   */
+  toOldJSON(libraryItemIds = []) {
+    return {
+      id: this.id,
+      libraryId: this.libraryId,
+      name: this.name,
+      description: this.description,
+      books: [...libraryItemIds],
+      lastUpdate: this.updatedAt.valueOf(),
+      createdAt: this.createdAt.valueOf()
+    }
+  }
+
+  toOldJSONExpanded() {
+    if (!this.books) {
+      throw new Error('Books are required to expand Collection')
+    }
+
+    const json = this.toOldJSON()
+    json.books = this.books.map((book) => {
+      const libraryItem = book.libraryItem
+      delete book.libraryItem
+      libraryItem.media = book
+      return libraryItem.toOldJSONExpanded()
+    })
+
+    return json
   }
 }
 

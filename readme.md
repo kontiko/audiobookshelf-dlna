@@ -31,7 +31,7 @@ Audiobookshelf is a self-hosted audiobook and podcast server.
 - Fetch metadata and cover art from several sources
 - Chapter editor and chapter lookup (using [Audnexus API](https://audnex.us/))
 - Merge your audio files into a single m4b
-- Embed metadata and cover image into your audio files (using [Tone](https://github.com/sandreas/tone))
+- Embed metadata and cover image into your audio files
 - Basic ebook support and ereader
   - Epub, pdf, cbr, cbz
   - Send ebook to device (i.e. Kindle)
@@ -39,7 +39,13 @@ Audiobookshelf is a self-hosted audiobook and podcast server.
 
 Is there a feature you are looking for? [Suggest it](https://github.com/advplyr/audiobookshelf/issues/new/choose)
 
-Join us on [Discord](https://discord.gg/HQgCbd6E75) or [Matrix](https://matrix.to/#/#audiobookshelf:matrix.org)
+Join us on [Discord](https://discord.gg/HQgCbd6E75)
+
+### Demo
+
+Check out the web client demo: https://audiobooks.dev/ (thanks for hosting [@Vito0912](https://github.com/Vito0912)!)
+
+Username/password: `demo`/`demo` (user account)
 
 ### Android App (beta)
 
@@ -47,7 +53,7 @@ Try it out on the [Google Play Store](https://play.google.com/store/apps/details
 
 ### iOS App (beta)
 
-**Beta is currently full. Apple has a hard limit of 10k beta testers. Updates will be posted in Discord/Matrix.**
+**Beta is currently full. Apple has a hard limit of 10k beta testers. Updates will be posted in Discord.**
 
 Using Test Flight: https://testflight.apple.com/join/wiic7QIW **_(beta is full)_**
 
@@ -79,7 +85,7 @@ See [install docs](https://www.audiobookshelf.org/docs)
 
 #### Important! Audiobookshelf requires a websocket connection.
 
-#### Note: Subfolder paths (e.g. /audiobooks) are not supported yet. See [issue](https://github.com/advplyr/audiobookshelf/issues/385)
+#### Note: Using a subfolder is supported with no additional changes but the path must be `/audiobookshelf` (this is not changeable). See [discussion](https://github.com/advplyr/audiobookshelf/discussions/3535)
 
 ### NGINX Proxy Manager
 
@@ -92,29 +98,33 @@ Toggle websockets support.
 Add this to the site config file on your nginx server after you have changed the relevant parts in the <> brackets, and inserted your certificate paths.
 
 ```bash
-server
-{
-        listen 443 ssl;
-        server_name <sub>.<domain>.<tld>;
+server {
+   listen 443 ssl;
+   server_name <sub>.<domain>.<tld>;
 
-        access_log /var/log/nginx/audiobookshelf.access.log;
-        error_log /var/log/nginx/audiobookshelf.error.log;
+   access_log /var/log/nginx/audiobookshelf.access.log;
+   error_log /var/log/nginx/audiobookshelf.error.log;
 
-        ssl_certificate      /path/to/certificate;
-        ssl_certificate_key  /path/to/key;
+   ssl_certificate      /path/to/certificate;
+   ssl_certificate_key  /path/to/key;
 
-        location / {
-                     proxy_set_header X-Forwarded-For    $proxy_add_x_forwarded_for;
-                     proxy_set_header  X-Forwarded-Proto $scheme;
-                     proxy_set_header  Host              $host;
-                     proxy_set_header Upgrade            $http_upgrade;
-                     proxy_set_header Connection         "upgrade";
+   location / {
+      proxy_set_header X-Forwarded-For    $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto  $scheme;
+      proxy_set_header Host               $http_host;
+      proxy_set_header Upgrade            $http_upgrade;
+      proxy_set_header Connection         "upgrade";
 
-                     proxy_http_version                  1.1;
+      proxy_http_version                  1.1;
 
-                     proxy_pass                          http://<URL_to_forward_to>;
-                     proxy_redirect                      http:// https://;
-                   }
+      proxy_pass                          http://<URL_to_forward_to>;
+      proxy_redirect                      http:// https://;
+
+      # Prevent 413 Request Entity Too Large error
+      # by increasing the maximum allowed size of the client request body
+      # For example, set it to 10 GiB
+      client_max_body_size                10240M;
+   }
 }
 ```
 
@@ -152,6 +162,16 @@ For this to work you must enable at least the following mods using `a2enmod`:
     SSLCertificateKeyFile /path/to/key/file
 </VirtualHost>
 </IfModule>
+```
+
+If using Apache >= 2.4.47 you can use the following, without having to use any of the `RewriteEngine`, `RewriteCond`, or `RewriteRule` directives. For example:
+
+```xml
+    <Location /audiobookshelf>
+        ProxyPreserveHost on
+        ProxyPass http://localhost:<audiobookshelf_port>/audiobookshelf upgrade=websocket
+        ProxyPassReverse http://localhost:<audiobookshelf_port>/audiobookshelf
+    </Location>
 ```
 
 Some SSL certificates like those signed by Let's Encrypt require ACME validation. To allow Let's Encrypt to write and confirm the ACME challenge, edit your VirtualHost definition to prevent proxying traffic that queries `/.well-known` and instead serve that directly:
@@ -335,7 +355,7 @@ This application is built using [NodeJs](https://nodejs.org/).
 
 ### Localization
 
-Thank you to [Weblate](https://hosted.weblate.org/engage/audiobookshelf/) for hosting our localization infrastructure pro-bono. If you want to see Audiobookshelf in your language, please help us localize. Additional information on helping with the translations [here](https://www.audiobookshelf.org/faq#how-do-i-help-with-translations). <a href="https://hosted.weblate.org/engage/audiobookshelf/"> <img src="https://hosted.weblate.org/widget/audiobookshelf/horizontal-auto.svg" alt="Translation status" /> </a>
+Thank you to [Weblate](https://hosted.weblate.org/engage/audiobookshelf/) for hosting our localization infrastructure pro-bono. If you want to see Audiobookshelf in your language, please help us localize. Additional information on helping with the translations [here](https://www.audiobookshelf.org/faq#how-do-i-help-with-translations). <a href="https://hosted.weblate.org/engage/audiobookshelf/"> <img src="https://hosted.weblate.org/widget/audiobookshelf/abs-web-client/horizontal-auto.svg" alt="Translation status" /> </a>
 
 ### Dev Container Setup
 

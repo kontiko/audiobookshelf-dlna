@@ -11,14 +11,17 @@ Vue.prototype.$bytesPretty = (bytes, decimals = 2) => {
   if (isNaN(bytes) || bytes == 0) {
     return '0 Bytes'
   }
-  const k = 1024
+  const k = 1000
   const dm = decimals < 0 ? 0 : decimals
   const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i]
 }
 
-Vue.prototype.$elapsedPretty = (seconds, useFullNames = false) => {
+Vue.prototype.$elapsedPretty = (seconds, useFullNames = false, useMilliseconds = false) => {
+  if (useMilliseconds && seconds > 0 && seconds < 1) {
+    return `${Math.floor(seconds * 1000)} ms`
+  }
   if (seconds < 60) {
     return `${Math.floor(seconds)} sec${useFullNames ? 'onds' : ''}`
   }
@@ -66,15 +69,20 @@ Vue.prototype.$elapsedPrettyExtended = (seconds, useDays = true, showSeconds = t
   let hours = Math.floor(minutes / 60)
   minutes -= hours * 60
 
+  // Handle rollovers before days calculation
+  if (minutes && seconds && !showSeconds) {
+    if (seconds >= 30) minutes++
+    if (minutes >= 60) {
+      hours++ // Increment hours if minutes roll over
+      minutes -= 60 // adjust minutes
+    }
+  }
+
+  // Now calculate days with the final hours value
   let days = 0
   if (useDays || Math.floor(hours / 24) >= 100) {
     days = Math.floor(hours / 24)
     hours -= days * 24
-  }
-
-  // If not showing seconds then round minutes up
-  if (minutes && seconds && !showSeconds) {
-    if (seconds >= 30) minutes++
   }
 
   const strs = []

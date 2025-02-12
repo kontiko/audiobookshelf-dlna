@@ -4,7 +4,7 @@
       <template #header-items>
         <ui-tooltip :text="$strings.LabelClickForMoreInfo" class="inline-flex ml-2">
           <a href="https://www.audiobookshelf.org/guides/send_to_ereader" target="_blank" class="inline-flex">
-            <span class="material-icons text-xl w-5 text-gray-200">help_outline</span>
+            <span class="material-symbols text-xl w-5 text-gray-200">help_outline</span>
           </a>
         </ui-tooltip>
       </template>
@@ -27,7 +27,7 @@
               <ui-tooltip :text="$strings.LabelEmailSettingsSecureHelp">
                 <div class="pl-4 flex items-center">
                   <span id="email-settings-secure">{{ $strings.LabelEmailSettingsSecure }}</span>
-                  <span class="material-icons text-lg pl-1">info_outlined</span>
+                  <span class="material-symbols text-lg pl-1">info</span>
                 </div>
               </ui-tooltip>
             </div>
@@ -39,7 +39,7 @@
               <ui-tooltip :text="$strings.LabelEmailSettingsRejectUnauthorizedHelp">
                 <div class="pl-4 flex items-center">
                   <span id="email-settings-reject-unauthorized">{{ $strings.LabelEmailSettingsRejectUnauthorized }}</span>
-                  <span class="material-icons text-lg pl-1">info_outlined</span>
+                  <span class="material-symbols text-lg pl-1">info</span>
                 </div>
               </ui-tooltip>
             </div>
@@ -109,7 +109,7 @@
         </tr>
       </table>
       <div v-else-if="!loading" class="text-center py-4">
-        <p class="text-lg text-gray-100">No Devices</p>
+        <p class="text-lg text-gray-100">{{ $strings.MessageNoDevices }}</p>
       </div>
     </app-settings-content>
 
@@ -199,7 +199,7 @@ export default {
     },
     deleteDeviceClick(device) {
       const payload = {
-        message: `Are you sure you want to delete e-reader device "${device.name}"?`,
+        message: this.$getString('MessageConfirmDeleteDevice', [device.name]),
         callback: (confirmed) => {
           if (confirmed) {
             this.deleteDevice(device)
@@ -218,11 +218,10 @@ export default {
         .$post(`/api/emails/ereader-devices`, payload)
         .then((data) => {
           this.ereaderDevicesUpdated(data.ereaderDevices)
-          this.$toast.success('Device deleted')
         })
         .catch((error) => {
           console.error('Failed to delete device', error)
-          this.$toast.error('Failed to delete device')
+          this.$toast.error(this.$strings.ToastRemoveFailed)
         })
         .finally(() => {
           this.deletingDeviceName = null
@@ -246,11 +245,11 @@ export default {
       this.$axios
         .$post('/api/emails/test')
         .then(() => {
-          this.$toast.success('Test Email Sent')
+          this.$toast.success(this.$strings.ToastDeviceTestEmailSuccess)
         })
         .catch((error) => {
           console.error('Failed to send test email', error)
-          const errorMsg = error.response.data || 'Failed to send test email'
+          const errorMsg = error.response.data || this.$strings.ToastDeviceTestEmailFailed
           this.$toast.error(errorMsg)
         })
         .finally(() => {
@@ -289,11 +288,11 @@ export default {
           this.newSettings = {
             ...data.settings
           }
-          this.$toast.success('Email settings updated')
+          this.$toast.success(this.$strings.ToastEmailSettingsUpdateSuccess)
         })
         .catch((error) => {
           console.error('Failed to update email settings', error)
-          this.$toast.error('Failed to update email settings')
+          this.$toast.error(this.$strings.ToastFailedToUpdate)
         })
         .finally(() => {
           this.savingSettings = false

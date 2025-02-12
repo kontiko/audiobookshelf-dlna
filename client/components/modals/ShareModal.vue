@@ -2,44 +2,62 @@
   <modals-modal ref="modal" v-model="show" name="share" :width="600" :height="'unset'" :processing="processing">
     <template #outer>
       <div class="absolute top-0 left-0 p-5 w-2/3 overflow-hidden">
-        <p class="text-3xl text-white truncate">Share media item</p>
+        <p class="text-3xl text-white truncate">{{ $strings.LabelShare }}</p>
       </div>
     </template>
     <div class="px-6 py-8 w-full text-sm rounded-lg bg-bg shadow-lg border border-black-300 overflow-y-auto overflow-x-hidden" style="max-height: 80vh">
+      <div class="absolute top-0 right-0 p-4">
+        <ui-tooltip :text="$strings.LabelClickForMoreInfo" class="inline-flex ml-2">
+          <a href="https://www.audiobookshelf.org/guides/media-item-shares" target="_blank" class="inline-flex">
+            <span class="material-symbols text-xl w-5 text-gray-200">help_outline</span>
+          </a>
+        </ui-tooltip>
+      </div>
       <template v-if="currentShare">
         <div class="w-full py-2">
-          <label class="px-1 text-sm font-semibold block">Share URL</label>
-          <ui-text-input v-model="currentShareUrl" readonly class="text-base h-10" />
+          <label class="px-1 text-sm font-semibold block">{{ $strings.LabelShareURL }}</label>
+          <ui-text-input v-model="currentShareUrl" show-copy readonly />
         </div>
         <div class="w-full py-2 px-1">
-          <p v-if="currentShare.expiresAt" class="text-base">Expires in {{ currentShareTimeRemaining }}</p>
-          <p v-else>Permanent</p>
+          <p v-if="currentShare.isDownloadable" class="text-sm mb-2">{{ $strings.LabelDownloadable }}</p>
+          <p v-if="currentShare.expiresAt">{{ $getString('MessageShareExpiresIn', [currentShareTimeRemaining]) }}</p>
+          <p v-else>{{ $strings.LabelPermanent }}</p>
         </div>
       </template>
       <template v-else>
-        <div class="flex items-center justify-between space-x-4">
-          <div class="w-40">
-            <label class="px-1 text-sm font-semibold block">Slug</label>
+        <div class="flex flex-col sm:flex-row items-center justify-between space-y-4 sm:space-y-0 sm:space-x-4 mb-2">
+          <div class="w-full sm:w-48">
+            <label class="px-1 text-sm font-semibold block">{{ $strings.LabelSlug }}</label>
             <ui-text-input v-model="newShareSlug" class="text-base h-10" />
           </div>
           <div class="flex-grow" />
-          <div class="w-80">
-            <label class="px-1 text-sm font-semibold block">Share Duration</label>
+          <div class="w-full sm:w-80">
+            <label class="px-1 text-sm font-semibold block">{{ $strings.LabelDuration }}</label>
             <div class="inline-flex items-center space-x-2">
               <div>
                 <ui-icon-btn icon="remove" :size="10" @click="clickMinus" />
               </div>
-              <ui-text-input v-model="newShareDuration" type="number" text-center no-spinner class="text-center w-28 h-10 text-base" />
+              <ui-text-input v-model="newShareDuration" type="number" text-center no-spinner class="text-center max-w-12 min-w-12 h-10 text-base" />
               <div>
                 <ui-icon-btn icon="add" :size="10" @click="clickPlus" />
               </div>
-              <ui-dropdown v-model="shareDurationUnit" :items="durationUnits" />
+              <div class="w-28">
+                <ui-dropdown v-model="shareDurationUnit" :items="durationUnits" />
+              </div>
             </div>
           </div>
         </div>
-        <p class="text-sm text-gray-300 py-4 px-1">
-          Share URL will be: <span class="">{{ demoShareUrl }}</span>
-        </p>
+        <div class="flex items-center w-full md:w-1/2 mb-4">
+          <p class="text-sm text-gray-300 py-1 px-1">{{ $strings.LabelDownloadable }}</p>
+          <ui-toggle-switch size="sm" v-model="isDownloadable" />
+          <ui-tooltip :text="$strings.LabelShareDownloadableHelp">
+            <p class="pl-4 text-sm">
+              <span class="material-symbols icon-text text-sm">info</span>
+            </p>
+          </ui-tooltip>
+        </div>
+        <p class="text-sm text-gray-300 py-1 px-1" v-html="$getString('MessageShareURLWillBe', [demoShareUrl])" />
+        <p class="text-sm text-gray-300 py-1 px-1" v-html="$getString('MessageShareExpirationWillBe', [expirationDateString])" />
       </template>
       <div class="flex items-center pt-6">
         <div class="flex-grow" />
@@ -52,17 +70,7 @@
 
 <script>
 export default {
-  props: {
-    value: Boolean,
-    libraryItem: {
-      type: Object,
-      default: () => null
-    },
-    mediaItemShare: {
-      type: Object,
-      default: () => null
-    }
-  },
+  props: {},
   data() {
     return {
       processing: false,
@@ -72,18 +80,19 @@ export default {
       shareDurationUnit: 'minutes',
       durationUnits: [
         {
-          text: 'Minutes',
+          text: this.$strings.LabelMinutes,
           value: 'minutes'
         },
         {
-          text: 'Hours',
+          text: this.$strings.LabelHours,
           value: 'hours'
         },
         {
-          text: 'Days',
+          text: this.$strings.LabelDays,
           value: 'days'
         }
-      ]
+      ],
+      isDownloadable: false
     }
   },
   watch: {
@@ -98,33 +107,44 @@ export default {
   computed: {
     show: {
       get() {
-        return this.value
+        return this.$store.state.globals.showShareModal
       },
       set(val) {
-        this.$emit('input', val)
+        this.$store.commit('globals/setShowShareModal', val)
       }
+    },
+    mediaItemShare() {
+      return this.$store.state.globals.selectedMediaItemShare
+    },
+    libraryItem() {
+      return this.$store.state.selectedLibraryItem
     },
     user() {
       return this.$store.state.user.user
     },
     demoShareUrl() {
-      return `${window.origin}/share/${this.newShareSlug}`
+      return `${window.origin}${this.$config.routerBasePath}/share/${this.newShareSlug}`
     },
     currentShareUrl() {
       if (!this.currentShare) return ''
-      return `${window.origin}/share/${this.currentShare.slug}`
+      return `${window.origin}${this.$config.routerBasePath}/share/${this.currentShare.slug}`
     },
     currentShareTimeRemaining() {
       if (!this.currentShare) return 'Error'
-      if (!this.currentShare.expiresAt) return 'Permanent'
+      if (!this.currentShare.expiresAt) return this.$strings.LabelPermanent
       const msRemaining = new Date(this.currentShare.expiresAt).valueOf() - Date.now()
       if (msRemaining <= 0) return 'Expired'
-      return this.$elapsedPretty(msRemaining / 1000, true)
+      return this.$elapsedPrettyExtended(msRemaining / 1000, true, false)
     },
     expireDurationSeconds() {
       let shareDuration = Number(this.newShareDuration)
       if (!shareDuration || isNaN(shareDuration)) return 0
       return this.newShareDuration * (this.shareDurationUnit === 'minutes' ? 60 : this.shareDurationUnit === 'hours' ? 3600 : 86400)
+    },
+    expirationDateString() {
+      if (!this.expireDurationSeconds) return this.$strings.LabelPermanent
+      const dateMs = Date.now() + this.expireDurationSeconds * 1000
+      return this.$formatDatetime(dateMs, this.$store.state.serverSettings.dateFormat, this.$store.state.serverSettings.timeFormat)
     }
   },
   methods: {
@@ -156,14 +176,15 @@ export default {
     },
     openShare() {
       if (!this.newShareSlug) {
-        this.$toast.error('Slug is required')
+        this.$toast.error(this.$strings.ToastSlugRequired)
         return
       }
       const payload = {
         slug: this.newShareSlug,
         mediaItemType: 'book',
         mediaItemId: this.libraryItem.media.id,
-        expiresAt: this.expireDurationSeconds ? Date.now() + this.expireDurationSeconds * 1000 : 0
+        expiresAt: this.expireDurationSeconds ? Date.now() + this.expireDurationSeconds * 1000 : 0,
+        isDownloadable: this.isDownloadable
       }
       this.processing = true
       this.$axios

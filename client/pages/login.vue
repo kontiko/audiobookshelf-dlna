@@ -132,11 +132,11 @@ export default {
   methods: {
     async submitServerSetup() {
       if (!this.newRoot.username || !this.newRoot.username.trim()) {
-        this.$toast.error('Must enter a root username')
+        this.$toast.error(this.$strings.ToastUserRootRequireName)
         return
       }
       if (this.newRoot.password !== this.confirmPassword) {
-        this.$toast.error('Password mismatch')
+        this.$toast.error(this.$strings.ToastUserPasswordMismatch)
         return
       }
       if (!this.newRoot.password) {
@@ -217,6 +217,8 @@ export default {
           }
         })
         .then((res) => {
+          console.log('Res: ')
+          console.log(res)
           this.setUser(res)
           this.processing = false
           return true

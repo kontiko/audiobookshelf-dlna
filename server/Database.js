@@ -8,6 +8,8 @@ const Logger = require('./Logger')
 const dbMigration = require('./utils/migrations/dbMigration')
 const Auth = require('./Auth')
 
+const MigrationManager = require('./managers/MigrationManager')
+
 class Database {
   constructor() {
     this.sequelize = null
@@ -26,6 +28,9 @@ class Database {
     this.notificationSettings = null
     /** @type {import('./objects/settings/EmailSettings')} */
     this.emailSettings = null
+
+    this.supportsUnaccent = false
+    this.supportsUnicodeFoldings = false
   }
 
   get models() {
@@ -137,6 +142,16 @@ class Database {
     return this.models.customMetadataProvider
   }
 
+  /** @type {typeof import('./models/MediaItemShare')} */
+  get mediaItemShareModel() {
+    return this.models.mediaItemShare
+  }
+
+  /** @type {typeof import('./models/Device')} */
+  get deviceModel() {
+    return this.models.device
+  }
+
   /**
    * Check if db file exists
    * @returns {boolean}
@@ -161,6 +176,15 @@ class Database {
 
     if (!(await this.connect())) {
       throw new Error('Database connection failed')
+    }
+
+    try {
+      const migrationManager = new MigrationManager(this.sequelize, this.isNew, global.ConfigPath)
+      await migrationManager.init(packageJson.version)
+      await migrationManager.runMigrations()
+    } catch (error) {
+      Logger.error(`[Database] Failed to run migrations`, error)
+      throw new Error('Database migration failed')
     }
 
     await this.buildModels(force)
@@ -202,12 +226,65 @@ class Database {
 
     try {
       await this.sequelize.authenticate()
+
+      // Set SQLite pragmas from environment variables
+      const allowedPragmas = [
+        { name: 'mmap_size', env: 'SQLITE_MMAP_SIZE' },
+        { name: 'cache_size', env: 'SQLITE_CACHE_SIZE' },
+        { name: 'temp_store', env: 'SQLITE_TEMP_STORE' }
+      ]
+
+      for (const pragma of allowedPragmas) {
+        const value = process.env[pragma.env]
+        if (value !== undefined) {
+          try {
+            Logger.info(`[Database] Running "PRAGMA ${pragma.name} = ${value}"`)
+            await this.sequelize.query(`PRAGMA ${pragma.name} = ${value}`)
+            const [result] = await this.sequelize.query(`PRAGMA ${pragma.name}`)
+            Logger.debug(`[Database] "PRAGMA ${pragma.name}" query result:`, result)
+          } catch (error) {
+            Logger.error(`[Database] Failed to set SQLite pragma ${pragma.name}`, error)
+          }
+        }
+      }
+
+      if (process.env.NUSQLITE3_PATH) {
+        await this.loadExtension(process.env.NUSQLITE3_PATH)
+        Logger.info(`[Database] Db supports unaccent and unicode foldings`)
+        this.supportsUnaccent = true
+        this.supportsUnicodeFoldings = true
+      }
       Logger.info(`[Database] Db connection was successful`)
       return true
     } catch (error) {
       Logger.error(`[Database] Failed to connect to db`, error)
       return false
     }
+  }
+
+  /**
+   * @param {string} extension paths to extension binary
+   */
+  async loadExtension(extension) {
+    // This is a hack to get the db connection for loading extensions.
+    // The proper way would be to use the 'afterConnect' hook, but that hook is never called for sqlite due to a bug in sequelize.
+    // See https://github.com/sequelize/sequelize/issues/12487
+    // This is not a public API and may break in the future.
+    const db = await this.sequelize.dialect.connectionManager.getConnection()
+    if (typeof db?.loadExtension !== 'function') throw new Error('Failed to get db connection for loading extensions')
+
+    Logger.info(`[Database] Loading extension ${extension}`)
+    await new Promise((resolve, reject) => {
+      db.loadExtension(extension, (err) => {
+        if (err) {
+          Logger.error(`[Database] Failed to load extension ${extension}`, err)
+          reject(err)
+          return
+        }
+        Logger.info(`[Database] Successfully loaded extension ${extension}`)
+        resolve()
+      })
+    })
   }
 
   /**
@@ -326,11 +403,11 @@ class Database {
    * @param {string} username
    * @param {string} pash
    * @param {Auth} auth
-   * @returns {boolean} true if created
+   * @returns {Promise<boolean>} true if created
    */
   async createRootUser(username, pash, auth) {
     if (!this.sequelize) return false
-    await this.models.user.createRootUser(username, pash, auth)
+    await this.userModel.createRootUser(username, pash, auth)
     this.hasRootUser = true
     return true
   }
@@ -344,166 +421,6 @@ class Database {
   updateSetting(settings) {
     if (!this.sequelize) return false
     return this.models.setting.updateSettingObj(settings.toJSON())
-  }
-
-  async createUser(oldUser) {
-    if (!this.sequelize) return false
-    await this.models.user.createFromOld(oldUser)
-    return true
-  }
-
-  updateUser(oldUser) {
-    if (!this.sequelize) return false
-    return this.models.user.updateFromOld(oldUser)
-  }
-
-  updateBulkUsers(oldUsers) {
-    if (!this.sequelize) return false
-    return Promise.all(oldUsers.map((u) => this.updateUser(u)))
-  }
-
-  removeUser(userId) {
-    if (!this.sequelize) return false
-    return this.models.user.removeById(userId)
-  }
-
-  upsertMediaProgress(oldMediaProgress) {
-    if (!this.sequelize) return false
-    return this.models.mediaProgress.upsertFromOld(oldMediaProgress)
-  }
-
-  removeMediaProgress(mediaProgressId) {
-    if (!this.sequelize) return false
-    return this.models.mediaProgress.removeById(mediaProgressId)
-  }
-
-  updateBulkBooks(oldBooks) {
-    if (!this.sequelize) return false
-    return Promise.all(oldBooks.map((oldBook) => this.models.book.saveFromOld(oldBook)))
-  }
-
-  createLibrary(oldLibrary) {
-    if (!this.sequelize) return false
-    return this.models.library.createFromOld(oldLibrary)
-  }
-
-  updateLibrary(oldLibrary) {
-    if (!this.sequelize) return false
-    return this.models.library.updateFromOld(oldLibrary)
-  }
-
-  removeLibrary(libraryId) {
-    if (!this.sequelize) return false
-    return this.models.library.removeById(libraryId)
-  }
-
-  createBulkCollectionBooks(collectionBooks) {
-    if (!this.sequelize) return false
-    return this.models.collectionBook.bulkCreate(collectionBooks)
-  }
-
-  createPlaylistMediaItem(playlistMediaItem) {
-    if (!this.sequelize) return false
-    return this.models.playlistMediaItem.create(playlistMediaItem)
-  }
-
-  createBulkPlaylistMediaItems(playlistMediaItems) {
-    if (!this.sequelize) return false
-    return this.models.playlistMediaItem.bulkCreate(playlistMediaItems)
-  }
-
-  async createLibraryItem(oldLibraryItem) {
-    if (!this.sequelize) return false
-    await oldLibraryItem.saveMetadata()
-    await this.models.libraryItem.fullCreateFromOld(oldLibraryItem)
-  }
-
-  /**
-   * Save metadata file and update library item
-   *
-   * @param {import('./objects/LibraryItem')} oldLibraryItem
-   * @returns {Promise<boolean>}
-   */
-  async updateLibraryItem(oldLibraryItem) {
-    if (!this.sequelize) return false
-    await oldLibraryItem.saveMetadata()
-    const updated = await this.models.libraryItem.fullUpdateFromOld(oldLibraryItem)
-    // Clear library filter data cache
-    if (updated) {
-      delete this.libraryFilterData[oldLibraryItem.libraryId]
-    }
-    return updated
-  }
-
-  async removeLibraryItem(libraryItemId) {
-    if (!this.sequelize) return false
-    await this.models.libraryItem.removeById(libraryItemId)
-  }
-
-  async createFeed(oldFeed) {
-    if (!this.sequelize) return false
-    await this.models.feed.fullCreateFromOld(oldFeed)
-  }
-
-  updateFeed(oldFeed) {
-    if (!this.sequelize) return false
-    return this.models.feed.fullUpdateFromOld(oldFeed)
-  }
-
-  async removeFeed(feedId) {
-    if (!this.sequelize) return false
-    await this.models.feed.removeById(feedId)
-  }
-
-  updateSeries(oldSeries) {
-    if (!this.sequelize) return false
-    return this.models.series.updateFromOld(oldSeries)
-  }
-
-  async createSeries(oldSeries) {
-    if (!this.sequelize) return false
-    await this.models.series.createFromOld(oldSeries)
-  }
-
-  async createBulkSeries(oldSeriesObjs) {
-    if (!this.sequelize) return false
-    await this.models.series.createBulkFromOld(oldSeriesObjs)
-  }
-
-  async removeSeries(seriesId) {
-    if (!this.sequelize) return false
-    await this.models.series.removeById(seriesId)
-  }
-
-  async createAuthor(oldAuthor) {
-    if (!this.sequelize) return false
-    await this.models.author.createFromOld(oldAuthor)
-  }
-
-  async createBulkAuthors(oldAuthors) {
-    if (!this.sequelize) return false
-    await this.models.author.createBulkFromOld(oldAuthors)
-  }
-
-  updateAuthor(oldAuthor) {
-    if (!this.sequelize) return false
-    return this.models.author.updateFromOld(oldAuthor)
-  }
-
-  async removeAuthor(authorId) {
-    if (!this.sequelize) return false
-    await this.models.author.removeById(authorId)
-  }
-
-  async createBulkBookAuthors(bookAuthors) {
-    if (!this.sequelize) return false
-    await this.models.bookAuthor.bulkCreate(bookAuthors)
-  }
-
-  async removeBulkBookAuthors(authorId = null, bookId = null) {
-    if (!this.sequelize) return false
-    if (!authorId && !bookId) return
-    await this.models.bookAuthor.removeByIds(authorId, bookId)
   }
 
   getPlaybackSessions(where = null) {
@@ -529,21 +446,6 @@ class Database {
   removePlaybackSession(sessionId) {
     if (!this.sequelize) return false
     return this.models.playbackSession.removeById(sessionId)
-  }
-
-  getDeviceByDeviceId(deviceId) {
-    if (!this.sequelize) return false
-    return this.models.device.getOldDeviceByDeviceId(deviceId)
-  }
-
-  updateDevice(oldDevice) {
-    if (!this.sequelize) return false
-    return this.models.device.updateFromOld(oldDevice)
-  }
-
-  createDevice(oldDevice) {
-    if (!this.sequelize) return false
-    return this.models.device.createFromOld(oldDevice)
   }
 
   replaceTagInFilterData(oldTag, newTag) {
@@ -653,6 +555,11 @@ class Database {
     this.libraryFilterData[libraryId].publishers.push(publisher)
   }
 
+  addPublishedDecadeToFilterData(libraryId, decade) {
+    if (!this.libraryFilterData[libraryId] || !decade || this.libraryFilterData[libraryId].publishedDecades.includes(decade)) return
+    this.libraryFilterData[libraryId].publishedDecades.push(decade)
+  }
+
   addLanguageToFilterData(libraryId, language) {
     if (!this.libraryFilterData[libraryId] || !language || this.libraryFilterData[libraryId].languages.includes(language)) return
     this.libraryFilterData[libraryId].languages.push(language)
@@ -697,7 +604,7 @@ class Database {
    */
   async getAuthorIdByName(libraryId, authorName) {
     if (!this.libraryFilterData[libraryId]) {
-      return (await this.authorModel.getOldByNameAndLibrary(authorName, libraryId))?.id || null
+      return (await this.authorModel.getByNameAndLibrary(authorName, libraryId))?.id || null
     }
     return this.libraryFilterData[libraryId].authors.find((au) => au.name === authorName)?.id || null
   }
@@ -711,7 +618,7 @@ class Database {
    */
   async getSeriesIdByName(libraryId, seriesName) {
     if (!this.libraryFilterData[libraryId]) {
-      return (await this.seriesModel.getOldByNameAndLibrary(seriesName, libraryId))?.id || null
+      return (await this.seriesModel.getByNameAndLibrary(seriesName, libraryId))?.id || null
     }
     return this.libraryFilterData[libraryId].series.find((se) => se.name === seriesName)?.id || null
   }
@@ -741,7 +648,7 @@ class Database {
   /**
    * Clean invalid records in database
    * Series should have atleast one Book
-   * Book and Podcast must have an associated LibraryItem
+   * Book and Podcast must have an associated LibraryItem (and vice versa)
    * Remove playback sessions that are 3 seconds or less
    */
   async cleanDatabase() {
@@ -771,6 +678,63 @@ class Database {
       await book.destroy()
     }
 
+    // Remove invalid LibraryItem records
+    const libraryItemsWithNoMedia = await this.libraryItemModel.findAll({
+      include: [
+        {
+          model: this.bookModel,
+          attributes: ['id']
+        },
+        {
+          model: this.podcastModel,
+          attributes: ['id']
+        }
+      ],
+      where: {
+        '$book.id$': null,
+        '$podcast.id$': null
+      }
+    })
+    for (const libraryItem of libraryItemsWithNoMedia) {
+      Logger.warn(`Found libraryItem "${libraryItem.id}" with no media - removing it`)
+      await libraryItem.destroy()
+    }
+
+    // Remove invalid PlaylistMediaItem records
+    const playlistMediaItemsWithNoMediaItem = await this.playlistMediaItemModel.findAll({
+      include: [
+        {
+          model: this.bookModel,
+          attributes: ['id']
+        },
+        {
+          model: this.podcastEpisodeModel,
+          attributes: ['id']
+        }
+      ],
+      where: {
+        '$book.id$': null,
+        '$podcastEpisode.id$': null
+      }
+    })
+    for (const playlistMediaItem of playlistMediaItemsWithNoMediaItem) {
+      Logger.warn(`Found playlistMediaItem with no book or podcastEpisode - removing it`)
+      await playlistMediaItem.destroy()
+    }
+
+    // Remove invalid CollectionBook records
+    const collectionBooksWithNoBook = await this.collectionBookModel.findAll({
+      include: {
+        model: this.bookModel,
+        required: false
+      },
+      where: { '$book.id$': null }
+    })
+    for (const collectionBook of collectionBooksWithNoBook) {
+      Logger.warn(`Found collectionBook with no book - removing it`)
+      await collectionBook.destroy()
+    }
+
     // Remove empty series
     const emptySeries = await this.seriesModel.findAll({
       include: {
@@ -794,6 +758,59 @@ class Database {
     })
     if (badSessionsRemoved > 0) {
       Logger.warn(`Removed ${badSessionsRemoved} sessions that were 3 seconds or less`)
+    }
+  }
+
+  async createTextSearchQuery(query) {
+    const textQuery = new this.TextSearchQuery(this.sequelize, this.supportsUnaccent, query)
+    await textQuery.init()
+    return textQuery
+  }
+
+  TextSearchQuery = class {
+    constructor(sequelize, supportsUnaccent, query) {
+      this.sequelize = sequelize
+      this.supportsUnaccent = supportsUnaccent
+      this.query = query
+      this.hasAccents = false
+    }
+
+    /**
+     * Returns a normalized (accents-removed) expression for the specified value.
+     *
+     * @param {string} value
+     * @returns {string}
+     */
+    normalize(value) {
+      return `unaccent(${value})`
+    }
+
+    /**
+     * Initialize the text query.
+     *
+     */
+    async init() {
+      if (!this.supportsUnaccent) return
+      const escapedQuery = this.sequelize.escape(this.query)
+      const normalizedQueryExpression = this.normalize(escapedQuery)
+      const normalizedQueryResult = await this.sequelize.query(`SELECT ${normalizedQueryExpression} as normalized_query`)
+      const normalizedQuery = normalizedQueryResult[0][0].normalized_query
+      this.hasAccents = escapedQuery !== this.sequelize.escape(normalizedQuery)
+    }
+
+    /**
+     * Get match expression for the specified column.
+     * If the query contains accents, match against the column as-is (case-insensitive exact match).
+     * otherwise match against a normalized column (case-insensitive match with accents removed).
+     *
+     * @param {string} column
+     * @returns {string}
+     */
+    matchExpression(column) {
+      const pattern = this.sequelize.escape(`%${this.query}%`)
+      if (!this.supportsUnaccent) return `${column} LIKE ${pattern}`
+      const normalizedColumn = this.hasAccents ? column : this.normalize(column)
+      return `${normalizedColumn} LIKE ${pattern}`
     }
   }
 }

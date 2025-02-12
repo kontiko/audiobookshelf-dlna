@@ -6,8 +6,8 @@
         <ui-text-input-with-label ref="maxEpisodesInput" v-model="maxEpisodesToDownload" :disabled="checkingNewEpisodes" type="number" :label="$strings.LabelLimit" class="w-16 mr-2" input-class="h-10">
           <div class="flex -mb-0.5">
             <p class="px-1 text-sm font-semibold" :class="{ 'text-gray-400': checkingNewEpisodes }">{{ $strings.LabelLimit }}</p>
-            <ui-tooltip direction="top" text="Max # of episodes to download. Use 0 for unlimited.">
-              <span class="material-icons text-base">info_outlined</span>
+            <ui-tooltip direction="top" :text="$strings.LabelMaxEpisodesToDownload">
+              <span class="material-symbols text-base">info</span>
             </ui-tooltip>
           </div>
         </ui-text-input-with-label>
@@ -99,7 +99,7 @@ export default {
 
       if (this.maxEpisodesToDownload < 0) {
         this.maxEpisodesToDownload = 3
-        this.$toast.error('Invalid max episodes to download')
+        this.$toast.error(this.$strings.ToastInvalidMaxEpisodesToDownload)
         return
       }
 
@@ -113,6 +113,10 @@ export default {
           return false
         })
         console.log('updateResult', updateResult)
+      } else if (!lastEpisodeCheck) {
+        this.$toast.error(this.$strings.ToastDateTimeInvalidOrIncomplete)
+        this.checkingNewEpisodes = false
+        return false
       }
 
       this.$axios
@@ -120,9 +124,9 @@ export default {
         .then((response) => {
           if (response.episodes && response.episodes.length) {
             console.log('New episodes', response.episodes.length)
-            this.$toast.success(`${response.episodes.length} new episodes found!`)
+            this.$toast.success(this.$getString('ToastNewEpisodesFound', [response.episodes.length]))
           } else {
-            this.$toast.info('No new episodes found')
+            this.$toast.info(this.$strings.ToastNoNewEpisodesFound)
           }
           this.checkingNewEpisodes = false
         })

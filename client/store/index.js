@@ -72,16 +72,17 @@ export const actions = {
     return this.$axios
       .$patch('/api/settings', updatePayload)
       .then((result) => {
-        if (result.success) {
+        if (result.serverSettings) {
           commit('setServerSettings', result.serverSettings)
-          return true
-        } else {
-          return false
         }
+        return result
       })
       .catch((error) => {
         console.error('Failed to update server settings', error)
-        return false
+        const errorMsg = error.response?.data || 'Unknown error'
+        return {
+          error: errorMsg
+        }
       })
   },
   checkForUpdate({ commit }) {
@@ -99,7 +100,7 @@ export const actions = {
     }
 
     var shouldCheckForUpdate = Date.now() - Number(lastVerCheck) > VERSION_CHECK_BUFF
-    if (!shouldCheckForUpdate && savedVersionData && savedVersionData.version !== currentVersion) {
+    if (!shouldCheckForUpdate && savedVersionData && (savedVersionData.version !== currentVersion || !savedVersionData.releasesToShow)) {
       // Version mismatch between saved data so check for update anyway
       shouldCheckForUpdate = true
     }
@@ -238,6 +239,5 @@ export const mutations = {
   },
   setInnerModalOpen(state, val) {
     state.innerModalOpen = val
-  },
-
+  }
 }

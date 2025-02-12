@@ -2,6 +2,7 @@ const SocketAuthority = require('../SocketAuthority')
 const timespan = require('../libs/jsonwebtoken/lib/timespan')
 const clientEmitter = require('../SocketAuthority')
 const Logger = require('../Logger')
+const { res } = require('../libs/dateAndTime')
 class DLNASession {
   constructor(id, player, audiobook, start_time, serverAddress) {
     this.socket_id = id
@@ -63,10 +64,12 @@ class DLNASession {
       }
       var url = `${this.serverAddress}/public/dlna/${this.socket_id}/${this.trackIndex}/track${track.metadata.ext}`
       console.log(url)
+      console.log(this.player)
       this.player.load(
         url,
         options,
         function (err, result) {
+          console.log(result)
           if (err) Logger.error(err)
           this.player.play()
           this.player.seek(time - track.startOffset)

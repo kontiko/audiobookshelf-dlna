@@ -8,6 +8,7 @@ const AudiobookCovers = require('../providers/AudiobookCovers')
 const CustomProviderAdapter = require('../providers/CustomProviderAdapter')
 const Logger = require('../Logger')
 const { levenshteinDistance, escapeRegExp } = require('../utils/index')
+const htmlSanitizer = require('../utils/htmlSanitizer')
 
 class BookFinder {
   #providerResponseTimeout = 30000
@@ -202,10 +203,14 @@ class BookFinder {
    * @returns {Promise<Object[]>}
    */
   async getCustomProviderResults(title, author, isbn, providerSlug) {
-    const books = await this.customProviderAdapter.search(title, author, isbn, providerSlug, 'book', this.#providerResponseTimeout)
-    if (this.verbose) Logger.debug(`Custom provider '${providerSlug}' Search Results: ${books.length || 0}`)
-
-    return books
+    try {
+      const books = await this.customProviderAdapter.search(title, author, isbn, providerSlug, 'book', this.#providerResponseTimeout)
+      if (this.verbose) Logger.debug(`Custom provider '${providerSlug}' Search Results: ${books.length || 0}`)
+      return books
+    } catch (error) {
+      Logger.error(`Error searching Custom provider '${providerSlug}':`, error)
+      return []
+    }
   }
 
   static TitleCandidates = class {
@@ -357,7 +362,7 @@ class BookFinder {
   /**
    * Search for books including fuzzy searches
    *
-   * @param {Object} libraryItem
+   * @param {import('../models/LibraryItem')} libraryItem
    * @param {string} provider
    * @param {string} title
    * @param {string} author
@@ -459,6 +464,12 @@ class BookFinder {
     } else {
       books = await this.getGoogleBooksResults(title, author)
     }
+    books.forEach((book) => {
+      if (book.description) {
+        book.description = htmlSanitizer.sanitize(book.description)
+        book.descriptionPlain = htmlSanitizer.stripAllTags(book.description)
+      }
+    })
     return books
   }
 

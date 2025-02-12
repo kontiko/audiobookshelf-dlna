@@ -21,6 +21,14 @@ paths:
     $ref: './controllers/AuthorController.yaml#/paths/~1api~1authors~1{id}~1image'
   /api/authors/{id}/match:
     $ref: './controllers/AuthorController.yaml#/paths/~1api~1authors~1{id}~1match'
+  /api/emails/settings:
+    $ref: './controllers/EmailController.yaml#/paths/~1api~1emails~1settings'
+  /api/emails/test:
+    $ref: './controllers/EmailController.yaml#/paths/~1api~1emails~1test'
+  /api/emails/ereader-devices:
+    $ref: './controllers/EmailController.yaml#/paths/~1api~1emails~1ereader-devices'
+  /api/emails/send-ebook-to-device:
+    $ref: './controllers/EmailController.yaml#/paths/~1api~1emails~1send-ebook-to-device'
   /api/libraries:
     $ref: './controllers/LibraryController.yaml#/paths/~1api~1libraries'
   /api/libraries/{id}:
@@ -45,6 +53,28 @@ paths:
     $ref: './controllers/NotificationController.yaml#/paths/~1api~1notifications~1{id}'
   /api/notifications/{id}/test:
     $ref: './controllers/NotificationController.yaml#/paths/~1api~1notifications~1{id}~1test'
+  /api/podcasts:
+    $ref: './controllers/PodcastController.yaml#/paths/~1api~1podcasts'
+  /api/podcasts/feed:
+    $ref: './controllers/PodcastController.yaml#/paths/~1api~1podcasts~1feed'
+  /api/podcasts/opml/parse:
+    $ref: './controllers/PodcastController.yaml#/paths/~1api~1podcasts~1opml~1parse'
+  /api/podcasts/opml/create:
+    $ref: './controllers/PodcastController.yaml#/paths/~1api~1podcasts~1opml~1create'
+  /api/podcasts/{id}/checknew:
+    $ref: './controllers/PodcastController.yaml#/paths/~1api~1podcasts~1{id}~1checknew'
+  /api/podcasts/{id}/clear-queue:
+    $ref: './controllers/PodcastController.yaml#/paths/~1api~1podcasts~1{id}~1clear-queue'
+  /api/podcasts/{id}/downloads:
+    $ref: './controllers/PodcastController.yaml#/paths/~1api~1podcasts~1{id}~1downloads'
+  /api/podcasts/{id}/search-episode:
+    $ref: './controllers/PodcastController.yaml#/paths/~1api~1podcasts~1{id}~1search-episode'
+  /api/podcasts/{id}/download-episodes:
+    $ref: './controllers/PodcastController.yaml#/paths/~1api~1podcasts~1{id}~1download-episodes'
+  /api/podcasts/{id}/match-episodes:
+    $ref: './controllers/PodcastController.yaml#/paths/~1api~1podcasts~1{id}~1match-episodes'
+  /api/podcasts/{id}/episode/{episodeId}:
+    $ref: './controllers/PodcastController.yaml#/paths/~1api~1podcasts~1{id}~1episode~1{episodeId}'
   /api/series/{id}:
     $ref: './controllers/SeriesController.yaml#/paths/~1api~1series~1{id}'
 tags:
@@ -54,5 +84,9 @@ tags:
     description: Library endpoints
   - name: Series
     description: Series endpoints
+  - name: Email
+    description: Email endpoints
   - name: Notification
     description: Notifications endpoints
+  - name: Podcasts
+    description: Podcast endpoints

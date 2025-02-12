@@ -25,13 +25,12 @@
         </template>
       </div>
     </div>
-    <!-- <p v-if="!episodes.length" class="py-4 text-center text-lg">{{ $strings.MessageNoEpisodes }}</p> -->
     <div v-if="episodes.length" class="w-full py-3 mx-auto flex">
       <form @submit.prevent="submit" class="flex flex-grow">
         <ui-text-input v-model="search" @input="inputUpdate" type="search" :placeholder="$strings.PlaceholderSearchEpisode" class="flex-grow mr-2 text-sm md:text-base" />
       </form>
     </div>
-    <div class="relative min-h-[176px]">
+    <div class="relative min-h-44">
       <template v-for="episode in totalEpisodes">
         <div :key="episode" :id="`episode-${episode - 1}`" class="w-full h-44 px-2 py-3 overflow-hidden relative border-b border-white/10">
           <!-- episode is mounted here -->
@@ -40,7 +39,7 @@
       <div v-if="isSearching" class="w-full h-full absolute inset-0 flex justify-center py-12" :class="{ 'bg-black/50': totalEpisodes }">
         <ui-loading-indicator />
       </div>
-      <div v-else-if="!totalEpisodes" class="h-44 flex items-center justify-center">
+      <div v-else-if="!totalEpisodes" id="no-episodes" class="h-44 flex items-center justify-center">
         <p class="text-lg">{{ $strings.MessageNoEpisodes }}</p>
       </div>
     </div>
@@ -81,7 +80,8 @@ export default {
       episodeComponentRefs: {},
       windowHeight: 0,
       episodesTableOffsetTop: 0,
-      episodeRowHeight: 176
+      episodeRowHeight: 44 * 4, // h-44,
+      currScrollTop: 0
     }
   },
   watch: {
@@ -93,17 +93,18 @@ export default {
   },
   computed: {
     contextMenuItems() {
-      if (!this.userIsAdminOrUp) return []
-      return [
-        {
-          text: 'Quick match all episodes',
+      const menuItems = []
+      if (this.userIsAdminOrUp) {
+        menuItems.push({
+          text: this.$strings.MessageQuickMatchAllEpisodes,
           action: 'quick-match-episodes'
-        },
-        {
-          text: this.allEpisodesFinished ? this.$strings.MessageMarkAllEpisodesNotFinished : this.$strings.MessageMarkAllEpisodesFinished,
-          action: 'batch-mark-as-finished'
-        }
-      ]
+        })
+      }
+      menuItems.push({
+        text: this.allEpisodesFinished ? this.$strings.MessageMarkAllEpisodesNotFinished : this.$strings.MessageMarkAllEpisodesFinished,
+        action: 'batch-mark-as-finished'
+      })
+      return menuItems
     },
     sortItems() {
       return [
@@ -246,7 +247,7 @@ export default {
         message: newIsFinished ? this.$strings.MessageConfirmMarkAllEpisodesFinished : this.$strings.MessageConfirmMarkAllEpisodesNotFinished,
         callback: (confirmed) => {
           if (confirmed) {
-            this.batchUpdateEpisodesFinished(this.episodesSorted, newIsFinished)
+            this.batchUpdateEpisodesFinished(this.episodesCopy, newIsFinished)
           }
         },
         type: 'yesNo'
@@ -261,21 +262,21 @@ export default {
       this.processing = true
 
       const payload = {
-        message: 'Quick matching episodes will overwrite details if a match is found. Only unmatched episodes will be updated. Are you sure?',
+        message: this.$strings.MessageConfirmQuickMatchEpisodes,
         callback: (confirmed) => {
           if (confirmed) {
             this.$axios
               .$post(`/api/podcasts/${this.libraryItem.id}/match-episodes?override=1`)
               .then((data) => {
                 if (data.numEpisodesUpdated) {
-                  this.$toast.success(`${data.numEpisodesUpdated} episodes updated`)
+                  this.$toast.success(this.$getString('ToastEpisodeUpdateSuccess', [data.numEpisodesUpdated]))
                 } else {
-                  this.$toast.info('No changes were made')
+                  this.$toast.info(this.$strings.ToastNoUpdatesNecessary)
                 }
               })
               .catch((error) => {
                 console.error('Failed to request match episodes', error)
-                this.$toast.error('Failed to match episodes')
+                this.$toast.error(this.$strings.ToastFailedToMatch)
               })
           }
           this.processing = false
@@ -295,7 +296,7 @@ export default {
         episodeId: episode.id,
         title: episode.title,
         subtitle: this.mediaMetadata.title,
-        caption: episode.publishedAt ? `Published ${this.$formatDate(episode.publishedAt, this.dateFormat)}` : 'Unknown publish date',
+        caption: episode.publishedAt ? this.$getString('LabelPublishedDate', [this.$formatDate(episode.publishedAt, this.dateFormat)]) : this.$strings.LabelUnknownPublishDate,
         duration: episode.audioFile.duration || null,
         coverPath: this.media.coverPath || null
       }
@@ -305,6 +306,7 @@ export default {
       this.batchUpdateEpisodesFinished(this.selectedEpisodes, !this.selectedIsFinished)
     },
     batchUpdateEpisodesFinished(episodes, newIsFinished) {
+      if (!episodes.length) return
       this.processing = true
 
       const updateProgressPayloads = episodes.map((episode) => {
@@ -371,7 +373,7 @@ export default {
             episodeId: episode.id,
             title: episode.title,
             subtitle: this.mediaMetadata.title,
-            caption: episode.publishedAt ? `Published ${this.$formatDate(episode.publishedAt, this.dateFormat)}` : 'Unknown publish date',
+            caption: episode.publishedAt ? this.$getString('LabelPublishedDate', [this.$formatDate(episode.publishedAt, this.dateFormat)]) : this.$strings.LabelUnknownPublishDate,
             duration: episode.audioFile.duration || null,
             coverPath: this.media.coverPath || null
           })
@@ -483,9 +485,8 @@ export default {
         }
       }
     },
-    scroll(evt) {
-      if (!evt?.target?.scrollTop) return
-      const scrollTop = Math.max(evt.target.scrollTop - this.episodesTableOffsetTop, 0)
+    handleScroll() {
+      const scrollTop = this.currScrollTop
       let firstEpisodeIndex = Math.floor(scrollTop / this.episodeRowHeight)
       let lastEpisodeIndex = Math.ceil((scrollTop + this.windowHeight) / this.episodeRowHeight)
       lastEpisodeIndex = Math.min(this.totalEpisodes - 1, lastEpisodeIndex)
@@ -500,6 +501,12 @@ export default {
       })
       this.mountEpisodes(firstEpisodeIndex, lastEpisodeIndex + 1)
     },
+    scroll(evt) {
+      if (!evt?.target?.scrollTop) return
+      const scrollTop = Math.max(evt.target.scrollTop - this.episodesTableOffsetTop, 0)
+      this.currScrollTop = scrollTop
+      this.handleScroll()
+    },
     initListeners() {
       const itemPageWrapper = document.getElementById('item-page-wrapper')
       if (itemPageWrapper) {
@@ -513,6 +520,10 @@ export default {
       }
     },
     filterSortChanged() {
+      // Save filterKey and sortKey to local storage
+      localStorage.setItem('podcastEpisodesFilter', this.filterKey)
+      localStorage.setItem('podcastEpisodesSortBy', this.sortKey + (this.sortDesc ? '-desc' : ''))
+
       this.init()
     },
     refresh() {
@@ -527,14 +538,32 @@ export default {
       this.episodesTableOffsetTop = (lazyEpisodesTableEl?.offsetTop || 0) + 64
 
       this.windowHeight = window.innerHeight
-      this.episodesPerPage = Math.ceil(this.windowHeight / this.episodeRowHeight)
 
       this.$nextTick(() => {
-        this.mountEpisodes(0, Math.min(this.episodesPerPage, this.totalEpisodes))
+        this.recalcEpisodeRowHeight()
+        this.episodesPerPage = Math.ceil(this.windowHeight / this.episodeRowHeight)
+        // Maybe update currScrollTop if items were removed
+        const itemPageWrapper = document.getElementById('item-page-wrapper')
+        const { scrollHeight, clientHeight } = itemPageWrapper
+        const maxScrollTop = scrollHeight - clientHeight
+        this.currScrollTop = Math.min(this.currScrollTop, maxScrollTop)
+        this.handleScroll()
       })
+    },
+    recalcEpisodeRowHeight() {
+      const episodeRowEl = document.getElementById('episode-0') || document.getElementById('no-episodes')
+      if (episodeRowEl) {
+        const height = getComputedStyle(episodeRowEl).height
+        this.episodeRowHeight = parseInt(height) || this.episodeRowHeight
+      }
     }
   },
   mounted() {
+    this.filterKey = localStorage.getItem('podcastEpisodesFilter') || 'incomplete'
+    const sortBy = localStorage.getItem('podcastEpisodesSortBy') || 'publishedAt-desc'
+    this.sortKey = sortBy.split('-')[0]
+    this.sortDesc = sortBy.split('-')[1] === 'desc'
+
     this.episodesCopy = this.episodes.map((ep) => ({ ...ep }))
     this.initListeners()
     this.init()

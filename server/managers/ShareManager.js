@@ -1,21 +1,44 @@
 const Database = require('../Database')
 const Logger = require('../Logger')
+const SocketAuthority = require('../SocketAuthority')
+const LongTimeout = require('../utils/longTimeout')
+const { elapsedPretty } = require('../utils/index')
 
 /**
  * @typedef OpenMediaItemShareObject
  * @property {string} id
  * @property {import('../models/MediaItemShare').MediaItemShareObject} mediaItemShare
- * @property {NodeJS.Timeout} timeout
+ * @property {LongTimeout} timeout
  */
 
 class ShareManager {
   constructor() {
     /** @type {OpenMediaItemShareObject[]} */
     this.openMediaItemShares = []
+
+    /** @type {import('../objects/PlaybackSession')[]} */
+    this.openSharePlaybackSessions = []
   }
 
   init() {
     this.loadMediaItemShares()
+  }
+
+  /**
+   * @param {import('../objects/PlaybackSession')} playbackSession
+   */
+  addOpenSharePlaybackSession(playbackSession) {
+    Logger.info(`[ShareManager] Adding new open share playback session "${playbackSession.displayTitle}"`)
+    this.openSharePlaybackSessions.push(playbackSession)
+  }
+
+  /**
+   *
+   * @param {import('../objects/PlaybackSession')} playbackSession
+   */
+  closeSharePlaybackSession(playbackSession) {
+    Logger.info(`[ShareManager] Closing share playback session "${playbackSession.displayTitle}"`)
+    this.openSharePlaybackSessions = this.openSharePlaybackSessions.filter((s) => s.id !== playbackSession.id)
   }
 
   /**
@@ -50,6 +73,14 @@ class ShareManager {
       return mediaItemShareObjectForClient
     }
     return null
+  }
+
+  /**
+   * @param {string} shareSessionId
+   * @returns {import('../objects/PlaybackSession')}
+   */
+  findPlaybackSessionBySessionId(shareSessionId) {
+    return this.openSharePlaybackSessions.find((s) => s.shareSessionId === shareSessionId)
   }
 
   /**
@@ -89,13 +120,13 @@ class ShareManager {
       this.destroyMediaItemShare(mediaItemShare.id)
       return
     }
-
-    const timeout = setTimeout(() => {
+    const timeout = new LongTimeout()
+    timeout.set(() => {
       Logger.info(`[ShareManager] Removing expired media item share "${mediaItemShare.id}"`)
       this.removeMediaItemShare(mediaItemShare.id)
     }, expiresAtDuration)
     this.openMediaItemShares.push({ id: mediaItemShare.id, mediaItemShare: mediaItemShare.toJSON(), timeout })
-    Logger.info(`[ShareManager] Scheduled media item share "${mediaItemShare.id}" to expire in ${expiresAtDuration}ms`)
+    Logger.info(`[ShareManager] Scheduled media item share "${mediaItemShare.id}" to expire in ${elapsedPretty(expiresAtDuration / 1000)}`)
   }
 
   /**
@@ -108,6 +139,7 @@ class ShareManager {
     } else {
       this.openMediaItemShares.push({ id: mediaItemShare.id, mediaItemShare: mediaItemShare.toJSON() })
     }
+    SocketAuthority.adminEmitter('share_open', mediaItemShare.toJSONForClient())
   }
 
   /**
@@ -119,11 +151,18 @@ class ShareManager {
     if (!mediaItemShare) return
 
     if (mediaItemShare.timeout) {
-      clearTimeout(mediaItemShare.timeout)
+      mediaItemShare.timeout.clear()
     }
 
     this.openMediaItemShares = this.openMediaItemShares.filter((s) => s.id !== mediaItemShareId)
+    this.openSharePlaybackSessions = this.openSharePlaybackSessions.filter((s) => s.mediaItemShareId !== mediaItemShareId)
     await this.destroyMediaItemShare(mediaItemShareId)
+
+    const mediaItemShareObjectForClient = { ...mediaItemShare.mediaItemShare }
+    delete mediaItemShareObjectForClient.pash
+    delete mediaItemShareObjectForClient.userId
+    delete mediaItemShareObjectForClient.extraData
+    SocketAuthority.adminEmitter('share_closed', mediaItemShareObjectForClient)
   }
 
   /**
@@ -132,6 +171,19 @@ class ShareManager {
    */
   destroyMediaItemShare(mediaItemShareId) {
     return Database.models.mediaItemShare.destroy({ where: { id: mediaItemShareId } })
+  }
+
+  /**
+   * Close open share sessions that have not been updated in the last 24 hours
+   */
+  closeStaleOpenShareSessions() {
+    const updatedAtTimeCutoff = Date.now() - 1000 * 60 * 60 * 24
+    const staleSessions = this.openSharePlaybackSessions.filter((session) => session.updatedAt < updatedAtTimeCutoff)
+    for (const session of staleSessions) {
+      const sessionLastUpdate = new Date(session.updatedAt)
+      Logger.info(`[PlaybackSessionManager] Closing stale session "${session.displayTitle}" (${session.id}) last updated at ${sessionLastUpdate}`)
+      this.closeSharePlaybackSession(session)
+    }
   }
 }
 module.exports = new ShareManager()

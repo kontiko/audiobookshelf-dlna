@@ -2,7 +2,7 @@ const Path = require('path')
 const packageJson = require('../../../package.json')
 const { BookshelfView } = require('../../utils/constants')
 const Logger = require('../../Logger')
-const User = require('../user/User')
+const User = require('../../models/User')
 
 class ServerSettings {
   constructor(settings) {
@@ -24,6 +24,7 @@ class ServerSettings {
     // Security/Rate limits
     this.rateLimitLoginRequests = 10
     this.rateLimitLoginWindow = 10 * 60 * 1000 // 10 Minutes
+    this.allowIframe = false
 
     // Backups
     this.backupPath = Path.join(global.MetadataPath, 'backups')
@@ -78,6 +79,7 @@ class ServerSettings {
     this.authOpenIDMobileRedirectURIs = ['audiobookshelf://oauth']
     this.authOpenIDGroupClaim = ''
     this.authOpenIDAdvancedPermsClaim = ''
+    this.authOpenIDSubfolderForRedirectURLs = undefined
 
     if (settings) {
       this.construct(settings)
@@ -98,11 +100,12 @@ class ServerSettings {
 
     this.rateLimitLoginRequests = !isNaN(settings.rateLimitLoginRequests) ? Number(settings.rateLimitLoginRequests) : 10
     this.rateLimitLoginWindow = !isNaN(settings.rateLimitLoginWindow) ? Number(settings.rateLimitLoginWindow) : 10 * 60 * 1000 // 10 Minutes
+    this.allowIframe = !!settings.allowIframe
 
     this.backupPath = settings.backupPath || Path.join(global.MetadataPath, 'backups')
     this.backupSchedule = settings.backupSchedule || false
     this.backupsToKeep = settings.backupsToKeep || 2
-    this.maxBackupSize = settings.maxBackupSize || 1
+    this.maxBackupSize = settings.maxBackupSize === 0 ? 0 : settings.maxBackupSize || 1
 
     this.loggerDailyLogsToKeep = settings.loggerDailyLogsToKeep || 7
     this.loggerScannerLogsToKeep = settings.loggerScannerLogsToKeep || 2
@@ -139,6 +142,7 @@ class ServerSettings {
     this.authOpenIDMobileRedirectURIs = settings.authOpenIDMobileRedirectURIs || ['audiobookshelf://oauth']
     this.authOpenIDGroupClaim = settings.authOpenIDGroupClaim || ''
     this.authOpenIDAdvancedPermsClaim = settings.authOpenIDAdvancedPermsClaim || ''
+    this.authOpenIDSubfolderForRedirectURLs = settings.authOpenIDSubfolderForRedirectURLs
 
     if (!Array.isArray(this.authActiveAuthMethods)) {
       this.authActiveAuthMethods = ['local']
@@ -188,6 +192,11 @@ class ServerSettings {
       Logger.info(`[ServerSettings] Using backup path from environment variable ${process.env.BACKUP_PATH}`)
       this.backupPath = process.env.BACKUP_PATH
     }
+
+    if (process.env.ALLOW_IFRAME === '1' && !this.allowIframe) {
+      Logger.info(`[ServerSettings] Using allowIframe from environment variable`)
+      this.allowIframe = true
+    }
   }
 
   toJSON() {
@@ -205,6 +214,7 @@ class ServerSettings {
       metadataFileFormat: this.metadataFileFormat,
       rateLimitLoginRequests: this.rateLimitLoginRequests,
       rateLimitLoginWindow: this.rateLimitLoginWindow,
+      allowIframe: this.allowIframe,
       backupPath: this.backupPath,
       backupSchedule: this.backupSchedule,
       backupsToKeep: this.backupsToKeep,
@@ -240,7 +250,8 @@ class ServerSettings {
       authOpenIDMatchExistingBy: this.authOpenIDMatchExistingBy,
       authOpenIDMobileRedirectURIs: this.authOpenIDMobileRedirectURIs, // Do not return to client
       authOpenIDGroupClaim: this.authOpenIDGroupClaim, // Do not return to client
-      authOpenIDAdvancedPermsClaim: this.authOpenIDAdvancedPermsClaim // Do not return to client
+      authOpenIDAdvancedPermsClaim: this.authOpenIDAdvancedPermsClaim, // Do not return to client
+      authOpenIDSubfolderForRedirectURLs: this.authOpenIDSubfolderForRedirectURLs
     }
   }
 
@@ -286,6 +297,7 @@ class ServerSettings {
       authOpenIDMobileRedirectURIs: this.authOpenIDMobileRedirectURIs, // Do not return to client
       authOpenIDGroupClaim: this.authOpenIDGroupClaim, // Do not return to client
       authOpenIDAdvancedPermsClaim: this.authOpenIDAdvancedPermsClaim, // Do not return to client
+      authOpenIDSubfolderForRedirectURLs: this.authOpenIDSubfolderForRedirectURLs,
 
       authOpenIDSamplePermissions: User.getSampleAbsPermissions()
     }
