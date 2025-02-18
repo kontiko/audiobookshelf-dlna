@@ -528,6 +528,9 @@ export default {
     pauseItem() {
       this.playerHandler.pause()
     },
+    switchPlayer() {
+      this.playerHandler.switchPlayer()
+    },
     showFailedProgressSyncs() {
       if (!isNaN(this.syncFailedToast)) this.$toast.dismiss(this.syncFailedToast)
       this.syncFailedToast = this.$toast(this.$strings.ToastProgressIsNotBeingSynced, { timeout: false, type: 'error' })
@@ -541,6 +544,7 @@ export default {
     }
   },
   mounted() {
+    this.$eventBus.$on('dlna-device-changed', this.switchPlayer)
     this.$eventBus.$on('cast-session-active', this.castSessionActive)
     this.$eventBus.$on('playback-seek', this.seek)
     this.$eventBus.$on('playback-time-update', this.playbackTimeUpdate)
@@ -549,6 +553,7 @@ export default {
     this.$eventBus.$on('pause-item', this.pauseItem)
   },
   beforeDestroy() {
+    this.$eventBus.$off('dlna-device-changed', this.switchPlayer)
     this.$eventBus.$off('cast-session-active', this.castSessionActive)
     this.$eventBus.$off('playback-seek', this.seek)
     this.$eventBus.$off('playback-time-update', this.playbackTimeUpdate)

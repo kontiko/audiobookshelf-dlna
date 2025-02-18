@@ -53,6 +53,7 @@ export default {
         this.$store.commit('globals/setDlnaDevice', device)
         this.$root.socket.emit('test')
       }
+      this.$eventBus.$emit('dlna-device-changed')
       this.showMenu = false
     }
   },
