@@ -96,13 +96,16 @@ export default class DLNAPlayer extends EventEmitter {
   }
 
   play() {
+    this.playWhenReady = true
+    if (this.fake_player) this.fake_player.play()
     this.ctx.$root.socket.emit('dlna_play')
   }
 
   pause() {
     this.ctx.$root.socket.emit('dlna_pause')
+    this.playWhenReady = false
+    if (this.fake_player) this.fake_player.pause()
   }
-
   getCurrentTime() {
     //var currentTrackOffset = this.currentTrack.startOffset || 0
     return 0 //this.player ? currentTrackOffset + this.player.currentTime : 0

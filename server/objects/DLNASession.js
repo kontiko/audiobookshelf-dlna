@@ -57,7 +57,7 @@ class DLNASession {
         autoplay: true,
         contentType: track.mimeType,
         metadata: {
-          title: 'Test',
+          title: track.title,
           type: 'audio', // can be 'video', 'audio' or 'image'
           subtitlesUrl: null
         }

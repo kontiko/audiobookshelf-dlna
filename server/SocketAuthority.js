@@ -175,6 +175,7 @@ class SocketAuthority {
             Logger.info(`[SocketAuthority] Socket ${socket.id} disconnected from client "${_client.user.username}" after ${disconnectTime}ms (Reason: ${reason})`)
             delete this.clients[socket.id]
           }
+          this.Server.DLNAManager.exit_session(socket.id)
         })
 
         //
