@@ -78,7 +78,7 @@ export default class DLNAPlayer extends EventEmitter {
       this.coverUrl = `${window.location.origin}${coverImg}`
     }
     var serverAddress = window.origin
-    if (this.$isDev) serverAddress = `http://localhost:3333${this.$config.routerBasePath}`
+    if (this.$isDev) serverAddress = `http://localhost:3000${this.$config.routerBasePath}`
     this.ctx.$root.socket.emit('dlna_start', this.ctx.$store.state.globals.dlnaDevice, this.audioTracks, startTime, serverAddress)
     this.fake_player.src = tracks[0].relativeContentUrl
     this.fake_player.load()
