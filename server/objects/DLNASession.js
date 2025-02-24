@@ -2,21 +2,26 @@ const SocketAuthority = require('../SocketAuthority')
 const timespan = require('../libs/jsonwebtoken/lib/timespan')
 const clientEmitter = require('../SocketAuthority')
 const Logger = require('../Logger')
-const { res } = require('../libs/dateAndTime')
+var ASCIIFolder = require('fold-to-ascii')
+const Database = require('../Database')
+const { get } = require('../controllers/NotificationController')
+
 class DLNASession {
-  constructor(id, player, audiobook, start_time, serverAddress) {
+  constructor(id, player, tracks, start_time, serverAddress) {
     this.socket_id = id
     this.player = player
-    this.tracks = audiobook
+    this.tracks = tracks
+    console.log(this.title)
     this.serverAddress = serverAddress
     this.playtime = 0
     this.is_active = true
     this.status = 'PAUSED'
     this.trackIndex = null
     this.player.pause()
-    this.load(start_time)
     this.socket = SocketAuthority.clients[this.socket_id].socket
+    this.load(start_time)
   }
+
   update() {
     if (this.is_active) {
       this.player.getTransportInfo(
@@ -57,14 +62,12 @@ class DLNASession {
         autoplay: true,
         contentType: track.mimeType,
         metadata: {
-          title: track.title,
+          title: ASCIIFolder.foldReplacing(track.title, '*'),
           type: 'audio', // can be 'video', 'audio' or 'image'
           subtitlesUrl: null
         }
       }
       var url = `${this.serverAddress}/public/dlna/${this.socket_id}/${this.trackIndex}/track${track.metadata.ext}`
-      console.log(url)
-      console.log(this.player)
       this.player.load(
         url,
         options,

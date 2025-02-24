@@ -1,6 +1,6 @@
 const pkg = require('./package.json')
 
-const routerBasePath = process.env.ROUTER_BASE_PATH ?? ''
+const routerBasePath = process.env.ROUTER_BASE_PATH ?? '/audiobookshelf'
 const serverHostUrl = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3333'
 const serverPaths = ['api/', 'public/', 'hls/', 'auth/', 'feed/', 'status', 'login', 'logout', 'init']
 const proxy = Object.fromEntries(serverPaths.map((path) => [`${routerBasePath}/${path}`, { target: process.env.NODE_ENV !== 'production' ? serverHostUrl : '/' }]))
@@ -57,11 +57,7 @@ module.exports = {
   // Modules: https://go.nuxtjs.dev/config-modules
   modules: ['nuxt-socket-io', '@nuxtjs/axios', '@nuxtjs/proxy'],
 
-  proxy: {
-    '/api/': { target: process.env.NODE_ENV !== 'production' ? 'http://localhost:3333' : '/' },
-    '/public/': { target: process.env.NODE_ENV !== 'production' ? 'http://localhost:3333' : '/' },
-    '/dev/': { target: 'http://localhost:3333', pathRewrite: { '^/dev/': '' } }
-  },
+  proxy,
 
   io: {
     sockets: [

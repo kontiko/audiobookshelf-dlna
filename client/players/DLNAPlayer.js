@@ -69,8 +69,6 @@ export default class DLNAPlayer extends EventEmitter {
     this.isHlsTranscode = isHlsTranscode
     this.playWhenReady = playWhenReady
     this.currentTime = startTime
-    console.log('Tracks: ')
-    console.log(tracks.find((at) => at.startOffset <= startTime && at.startOffset + at.duration > startTime))
     var coverImg = this.ctx.$store.getters['globals/getLibraryItemCoverSrc'](libraryItem)
     if (process.env.NODE_ENV === 'development') {
       this.coverUrl = coverImg
@@ -78,7 +76,6 @@ export default class DLNAPlayer extends EventEmitter {
       this.coverUrl = `${window.location.origin}${coverImg}`
     }
     var serverAddress = window.origin
-    if (this.$isDev) serverAddress = `http://localhost:3000${this.$config.routerBasePath}`
     this.ctx.$root.socket.emit('dlna_start', this.ctx.$store.state.globals.dlnaDevice, this.audioTracks, startTime, serverAddress)
     this.fake_player.src = tracks[0].relativeContentUrl
     this.fake_player.load()

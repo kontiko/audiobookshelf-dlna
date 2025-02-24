@@ -23,7 +23,7 @@ class DLNAManager {
       this.devices.push(new DLNADevice(header.LOCATION))
     }
   }
-  start_playback(id, player, audiobook, start_time, serverAddress) {
+  start_playback(id, player, tracks, start_time, serverAddress) {
     this.playback_sessions = this.playback_sessions.filter((item) => !(item.socket_id == id))
     this.playback_sessions.push(
       new DLNASession(
@@ -31,7 +31,7 @@ class DLNAManager {
         this.devices.find((pl) => {
           return pl.UDN == player
         }),
-        audiobook,
+        tracks,
         start_time,
         serverAddress
       )
