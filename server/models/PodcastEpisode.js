@@ -80,9 +80,13 @@ class PodcastEpisode extends Model {
     if (rssPodcastEpisode.guid) {
       podcastEpisode.extraData.guid = rssPodcastEpisode.guid
     }
+
     if (audioFile.chapters?.length) {
       podcastEpisode.chapters = audioFile.chapters.map((ch) => ({ ...ch }))
+    } else if (rssPodcastEpisode.chapters?.length) {
+      podcastEpisode.chapters = rssPodcastEpisode.chapters.map((ch) => ({ ...ch }))
     }
+
     return this.create(podcastEpisode)
   }
 
@@ -122,6 +126,10 @@ class PodcastEpisode extends Model {
           {
             name: 'podcastEpisode_createdAt_podcastId',
             fields: ['createdAt', 'podcastId']
+          },
+          {
+            name: 'podcast_episodes_published_at',
+            fields: ['publishedAt']
           }
         ]
       }
@@ -177,6 +185,7 @@ class PodcastEpisode extends Model {
     const track = structuredClone(this.audioFile)
     track.startOffset = 0
     track.title = this.audioFile.metadata.filename
+    track.index = 1 // Podcast episodes only have one track
     track.contentUrl = `/api/items/${libraryItemId}/file/${track.ino}`
     return track
   }

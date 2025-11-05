@@ -1,7 +1,8 @@
 const SocketIO = require('socket.io')
 const Logger = require('./Logger')
 const Database = require('./Database')
-const Auth = require('./Auth')
+const TokenManager = require('./auth/TokenManager')
+const CoverSearchManager = require('./managers/CoverSearchManager')
 
 /**
  * @typedef SocketClient
@@ -85,6 +86,42 @@ class SocketAuthority {
   }
 
   /**
+   * Emits event with library item to all clients that can access the library item
+   * Note: Emits toOldJSONExpanded()
+   *
+   * @param {string} evt
+   * @param {import('./models/LibraryItem')} libraryItem
+   */
+  libraryItemEmitter(evt, libraryItem) {
+    for (const socketId in this.clients) {
+      if (this.clients[socketId].user?.checkCanAccessLibraryItem(libraryItem)) {
+        this.clients[socketId].socket.emit(evt, libraryItem.toOldJSONExpanded())
+      }
+    }
+  }
+
+  /**
+   * Emits event with library items to all clients that can access the library items
+   * Note: Emits toOldJSONExpanded()
+   *
+   * @param {string} evt
+   * @param {import('./models/LibraryItem')[]} libraryItems
+   */
+  libraryItemsEmitter(evt, libraryItems) {
+    for (const socketId in this.clients) {
+      if (this.clients[socketId].user) {
+        const libraryItemsAccessibleToUser = libraryItems.filter((li) => this.clients[socketId].user.checkCanAccessLibraryItem(li))
+        if (libraryItemsAccessibleToUser.length) {
+          this.clients[socketId].socket.emit(
+            evt,
+            libraryItemsAccessibleToUser.map((li) => li.toOldJSONExpanded())
+          )
+        }
+      }
+    }
+  }
+
+  /**
    * Closes the Socket.IO server and disconnect all clients
    *
    * @param {Function} callback
@@ -152,6 +189,9 @@ class SocketAuthority {
         socket.on('dlna_pause', () => this.Server.DLNAManager.pause_session(socket.id))
         socket.on('dlna_seek', (time) => this.Server.DLNAManager.seek(socket.id, time))
         socket.on('dlna_set_volume', (volume) => this.Server.DLNAManager.setVolume(socket.id, volume))
+        // Cover search streaming
+        socket.on('search_covers', (payload) => this.handleCoverSearch(socket, payload))
+        socket.on('cancel_cover_search', (requestId) => this.handleCancelCoverSearch(socket, requestId))
 
         // Logs
         socket.on('set_log_listener', (level) => Logger.addSocketListener(socket, level))
@@ -173,6 +213,10 @@ class SocketAuthority {
 
             const disconnectTime = Date.now() - _client.connected_at
             Logger.info(`[SocketAuthority] Socket ${socket.id} disconnected from client "${_client.user.username}" after ${disconnectTime}ms (Reason: ${reason})`)
+
+            // Cancel any active cover searches for this socket
+            this.cancelSocketCoverSearches(socket.id)
+
             delete this.clients[socket.id]
           }
           this.Server.DLNAManager.exit_session(socket.id)
@@ -205,18 +249,22 @@ class SocketAuthority {
    * When setting up a socket connection the user needs to be associated with a socket id
    * for this the client will send a 'auth' event that includes the users API token
    *
+   * Sends event 'init' to the socket. For admins this contains an array of users online.
+   * For failed authentication it sends event 'auth_failed' with a message
+   *
    * @param {SocketIO.Socket} socket
    * @param {string} token JWT
    */
   async authenticateSocket(socket, token) {
     // we don't use passport to authenticate the jwt we get over the socket connection.
     // it's easier to directly verify/decode it.
-    const token_data = Auth.validateAccessToken(token)
+    // TODO: Support API keys for web socket connections
+    const token_data = TokenManager.validateAccessToken(token)
 
     if (!token_data?.userId) {
       // Token invalid
       Logger.error('Cannot validate socket - invalid token')
-      return socket.emit('invalid_token')
+      return socket.emit('auth_failed', { message: 'Invalid token' })
     }
 
     // get the user via the id from the decoded jwt.
@@ -224,7 +272,11 @@ class SocketAuthority {
     if (!user) {
       // user not found
       Logger.error('Cannot validate socket - invalid token')
-      return socket.emit('invalid_token')
+      return socket.emit('auth_failed', { message: 'Invalid token' })
+    }
+    if (!user.isActive) {
+      Logger.error('Cannot validate socket - user is not active')
+      return socket.emit('auth_failed', { message: 'Invalid user' })
     }
 
     const client = this.clients[socket.id]
@@ -234,13 +286,18 @@ class SocketAuthority {
     }
 
     if (client.user !== undefined) {
-      Logger.debug(`[SocketAuthority] Authenticating socket client already has user`, client.user.username)
+      if (client.user.id === user.id) {
+        // Allow re-authentication of a socket to the same user
+        Logger.info(`[SocketAuthority] Authenticating socket already associated to user "${client.user.username}"`)
+      } else {
+        // Allow re-authentication of a socket to a different user but shouldn't happen
+        Logger.warn(`[SocketAuthority] Authenticating socket to user "${user.username}", but is already associated with a different user "${client.user.username}"`)
+      }
+    } else {
+      Logger.debug(`[SocketAuthority] Authenticating socket to user "${user.username}"`)
     }
 
     client.user = user
-
-    Logger.debug(`[SocketAuthority] User Online ${client.user.username}`)
-
     this.adminEmitter('user_online', client.user.toJSONForPublic(this.Server.playbackSessionManager.sessions))
 
     // Update user lastSeen without firing sequelize bulk update hooks
@@ -260,6 +317,101 @@ class SocketAuthority {
   cancelScan(id) {
     Logger.debug('[SocketAuthority] Cancel scan', id)
     this.Server.cancelLibraryScan(id)
+  }
+
+  /**
+   * Handle cover search request via WebSocket
+   * @param {SocketIO.Socket} socket
+   * @param {Object} payload
+   */
+  async handleCoverSearch(socket, payload) {
+    const client = this.clients[socket.id]
+    if (!client?.user) {
+      Logger.error('[SocketAuthority] Unauthorized cover search request')
+      socket.emit('cover_search_error', {
+        requestId: payload.requestId,
+        error: 'Unauthorized'
+      })
+      return
+    }
+
+    const { requestId, title, author, provider, podcast } = payload
+
+    if (!requestId || !title) {
+      Logger.error('[SocketAuthority] Invalid cover search request')
+      socket.emit('cover_search_error', {
+        requestId,
+        error: 'Invalid request parameters'
+      })
+      return
+    }
+
+    Logger.info(`[SocketAuthority] User ${client.user.username} initiated cover search ${requestId}`)
+
+    // Callback for streaming results to client
+    const onResult = (result) => {
+      socket.emit('cover_search_result', {
+        requestId,
+        provider: result.provider,
+        covers: result.covers,
+        total: result.total
+      })
+    }
+
+    // Callback when search completes
+    const onComplete = () => {
+      Logger.info(`[SocketAuthority] Cover search ${requestId} completed`)
+      socket.emit('cover_search_complete', { requestId })
+    }
+
+    // Callback for provider errors
+    const onError = (provider, errorMessage) => {
+      socket.emit('cover_search_provider_error', {
+        requestId,
+        provider,
+        error: errorMessage
+      })
+    }
+
+    // Start the search
+    CoverSearchManager.startSearch(requestId, { title, author, provider, podcast }, onResult, onComplete, onError).catch((error) => {
+      Logger.error(`[SocketAuthority] Cover search ${requestId} failed:`, error)
+      socket.emit('cover_search_error', {
+        requestId,
+        error: error.message
+      })
+    })
+  }
+
+  /**
+   * Handle cancel cover search request
+   * @param {SocketIO.Socket} socket
+   * @param {string} requestId
+   */
+  handleCancelCoverSearch(socket, requestId) {
+    const client = this.clients[socket.id]
+    if (!client?.user) {
+      Logger.error('[SocketAuthority] Unauthorized cancel cover search request')
+      return
+    }
+
+    Logger.info(`[SocketAuthority] User ${client.user.username} cancelled cover search ${requestId}`)
+
+    const cancelled = CoverSearchManager.cancelSearch(requestId)
+    if (cancelled) {
+      socket.emit('cover_search_cancelled', { requestId })
+    }
+  }
+
+  /**
+   * Cancel all cover searches associated with a socket (called on disconnect)
+   * @param {string} socketId
+   */
+  cancelSocketCoverSearches(socketId) {
+    // Get all active search request IDs and cancel those that might belong to this socket
+    // Since we don't track socket-to-request mapping, we log this for debugging
+    // The client will handle reconnection gracefully
+    Logger.debug(`[SocketAuthority] Socket ${socketId} disconnected, any active searches will timeout`)
   }
 }
 module.exports = new SocketAuthority()

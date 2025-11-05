@@ -109,7 +109,7 @@ function getIno(path) {
     .stat(path, { bigint: true })
     .then((data) => String(data.ino))
     .catch((err) => {
-      Logger.error('[Utils] Failed to get ino for path', path, err)
+      Logger.warn(`[Utils] Failed to get ino for path "${path}"`, err)
       return null
     })
 }
@@ -132,6 +132,40 @@ async function readTextFile(path) {
 module.exports.readTextFile = readTextFile
 
 /**
+ * Check if file or directory should be ignored. Returns a string of the reason to ignore, or null if not ignored
+ *
+ * @param {string} path
+ * @returns {string}
+ */
+module.exports.shouldIgnoreFile = (path) => {
+  // Check if directory or file name starts with "."
+  if (Path.basename(path).startsWith('.')) {
+    return 'dotfile'
+  }
+  if (path.split('/').find((p) => p.startsWith('.'))) {
+    return 'dotpath'
+  }
+
+  // If these strings exist anywhere in the filename or directory name, ignore. Vendor specific hidden directories
+  const includeAnywhereIgnore = ['@eaDir']
+  const filteredInclude = includeAnywhereIgnore.filter((str) => path.includes(str))
+  if (filteredInclude.length) {
+    return `${filteredInclude[0]} directory`
+  }
+
+  const extensionIgnores = ['.part', '.tmp', '.crdownload', '.download', '.bak', '.old', '.temp', '.tempfile', '.tempfile~']
+
+  // Check extension
+  if (extensionIgnores.includes(Path.extname(path).toLowerCase())) {
+    // Return the extension that is ignored
+    return `${Path.extname(path)} file`
+  }
+
+  // Should not ignore this file or directory
+  return null
+}
+
+/**
  * @typedef FilePathItem
  * @property {string} name - file name e.g. "audiofile.m4b"
  * @property {string} path - fullpath excluding folder e.g. "Author/Book/audiofile.m4b"
@@ -147,7 +181,7 @@ module.exports.readTextFile = readTextFile
  * @param {string} [relPathToReplace]
  * @returns {FilePathItem[]}
  */
-async function recurseFiles(path, relPathToReplace = null) {
+module.exports.recurseFiles = async (path, relPathToReplace = null) => {
   path = filePathToPOSIX(path)
   if (!path.endsWith('/')) path = path + '/'
 
@@ -197,14 +231,10 @@ async function recurseFiles(path, relPathToReplace = null) {
         return false
       }
 
-      if (item.extension === '.part') {
-        Logger.debug(`[fileUtils] Ignoring .part file "${relpath}"`)
-        return false
-      }
-
-      // Ignore any file if a directory or the filename starts with "."
-      if (relpath.split('/').find((p) => p.startsWith('.'))) {
-        Logger.debug(`[fileUtils] Ignoring path has . "${relpath}"`)
+      // Check for ignored extensions or directories
+      const shouldIgnore = this.shouldIgnoreFile(relpath)
+      if (shouldIgnore) {
+        Logger.debug(`[fileUtils] Ignoring ${shouldIgnore} - "${relpath}"`)
         return false
       }
 
@@ -212,7 +242,7 @@ async function recurseFiles(path, relPathToReplace = null) {
     })
     .filter((item) => {
       // Filter out items in ignore directories
-      if (directoriesToIgnore.some((dir) => item.fullname.startsWith(dir))) {
+      if (directoriesToIgnore.some((dir) => item.fullname.startsWith(dir + '/'))) {
         Logger.debug(`[fileUtils] Ignoring path in dir with .ignore "${item.fullname}"`)
         return false
       }
@@ -235,7 +265,6 @@ async function recurseFiles(path, relPathToReplace = null) {
 
   return list
 }
-module.exports.recurseFiles = recurseFiles
 
 /**
  *
@@ -333,6 +362,9 @@ module.exports.sanitizeFilename = (filename, colonReplacement = ' - ') => {
     return false
   }
 
+  // Normalize the string first to ensure consistent byte calculations
+  filename = filename.normalize('NFC')
+
   // Most file systems use number of bytes for max filename
   //   to support most filesystems we will use max of 255 bytes in utf-16
   //   Ref: https://doc.owncloud.com/server/next/admin_manual/troubleshooting/path_filename_length.html
@@ -361,8 +393,11 @@ module.exports.sanitizeFilename = (filename, colonReplacement = ' - ') => {
   const ext = Path.extname(sanitized) // separate out file extension
   const basename = Path.basename(sanitized, ext)
   const extByteLength = Buffer.byteLength(ext, 'utf16le')
+
   const basenameByteLength = Buffer.byteLength(basename, 'utf16le')
   if (basenameByteLength + extByteLength > MAX_FILENAME_BYTES) {
+    Logger.debug(`[fileUtils] Filename "${filename}" is too long (${basenameByteLength + extByteLength} bytes), trimming basename to ${MAX_FILENAME_BYTES - extByteLength} bytes.`)
+
     const MaxBytesForBasename = MAX_FILENAME_BYTES - extByteLength
     let totalBytes = 0
     let trimmedBasename = ''
@@ -376,6 +411,10 @@ module.exports.sanitizeFilename = (filename, colonReplacement = ' - ') => {
 
     trimmedBasename = trimmedBasename.trim()
     sanitized = trimmedBasename + ext
+  }
+
+  if (filename !== sanitized) {
+    Logger.debug(`[fileUtils] Sanitized filename "${filename}" to "${sanitized}" (${Buffer.byteLength(sanitized, 'utf16le')} bytes)`)
   }
 
   return sanitized
@@ -437,7 +476,7 @@ module.exports.getWindowsDrives = async () => {
     return []
   }
   return new Promise((resolve, reject) => {
-    exec('wmic logicaldisk get name', async (error, stdout, stderr) => {
+    exec('powershell -Command "(Get-PSDrive -PSProvider FileSystem).Name"', async (error, stdout, stderr) => {
       if (error) {
         reject(error)
         return
@@ -446,10 +485,9 @@ module.exports.getWindowsDrives = async () => {
         ?.split(/\r?\n/)
         .map((line) => line.trim())
         .filter((line) => line)
-        .slice(1)
       const validDrives = []
       for (const drive of drives) {
-        let drivepath = drive + '/'
+        let drivepath = drive + ':/'
         if (await fs.pathExists(drivepath)) {
           validDrives.push(drivepath)
         } else {

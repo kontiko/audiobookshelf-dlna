@@ -8,12 +8,12 @@
     </div>
 
     <div class="relative z-10 w-full flex h-full items-center justify-center">
-      <div v-if="criticalError" class="w-full max-w-md rounded border border-error border-opacity-25 bg-error bg-opacity-10 p-4">
+      <div v-if="criticalError" class="w-full max-w-md rounded-sm border border-error/25 bg-error/10 p-4">
         <p class="text-center text-lg font-semibold">{{ $strings.MessageServerCouldNotBeReached }}</p>
       </div>
       <div v-else-if="showInitScreen" class="w-full max-w-lg px-4 md:px-8 pb-8 pt-4">
         <p class="text-3xl text-white text-center mb-4">Initial Server Setup</p>
-        <div class="w-full h-px bg-white bg-opacity-10 my-4" />
+        <div class="w-full h-px bg-white/10 my-4" />
 
         <form @submit.prevent="submitServerSetup">
           <p class="text-lg font-semibold mb-2 pl-1 text-center">Create Root User</p>
@@ -26,19 +26,28 @@
           <ui-text-input-with-label v-model="MetadataPath" label="Metadata Path" disabled class="w-full mb-3 text-sm" />
 
           <div class="w-full flex justify-end py-3">
-            <ui-btn type="submit" :disabled="processing" color="primary" class="leading-none">{{ processing ? 'Initializing...' : $strings.ButtonSubmit }}</ui-btn>
+            <ui-btn type="submit" :disabled="processing" color="bg-primary" class="leading-none">{{ processing ? 'Initializing...' : $strings.ButtonSubmit }}</ui-btn>
           </div>
         </form>
       </div>
       <div v-else-if="isInit" class="w-full max-w-md px-8 pb-8 pt-4 lg:-mt-40">
-        <div class="bg-bg rounded-md shadow-lg border border-white border-opacity-5 p-4">
+        <div class="bg-bg rounded-md shadow-lg border border-white/5 p-4">
           <p class="text-2xl font-semibold text-center text-white mb-4">{{ $strings.HeaderLogin }}</p>
 
-          <div class="w-full h-px bg-white bg-opacity-10 my-4" />
+          <div class="w-full h-px bg-white/10 my-4" />
 
           <p v-if="loginCustomMessage" class="py-2 default-style mb-2" v-html="loginCustomMessage"></p>
 
           <p v-if="error" class="text-error text-center py-2">{{ error }}</p>
+
+          <div v-if="showNewAuthSystemMessage" class="mb-4">
+            <widgets-alert type="warning">
+              <div>
+                <p>{{ $strings.MessageAuthenticationSecurityMessage }}</p>
+                <a v-if="showNewAuthSystemAdminMessage" href="https://github.com/advplyr/audiobookshelf/discussions/4460" target="_blank" class="underline">{{ $strings.LabelMoreInfo }}</a>
+              </div>
+            </widgets-alert>
+          </div>
 
           <form v-show="login_local" @submit.prevent="submitForm">
             <label class="text-xs text-gray-300 uppercase">{{ $strings.LabelUsername }}</label>
@@ -47,14 +56,14 @@
             <label class="text-xs text-gray-300 uppercase">{{ $strings.LabelPassword }}</label>
             <ui-text-input v-model.trim="password" type="password" :disabled="processing" class="w-full mb-3" inputName="password" />
             <div class="w-full flex justify-end py-3">
-              <ui-btn type="submit" :disabled="processing" color="primary" class="leading-none">{{ processing ? 'Checking...' : $strings.ButtonSubmit }}</ui-btn>
+              <ui-btn type="submit" :disabled="processing" color="bg-primary" class="leading-none">{{ processing ? 'Checking...' : $strings.ButtonSubmit }}</ui-btn>
             </div>
           </form>
 
-          <div v-if="login_local && login_openid" class="w-full h-px bg-white bg-opacity-10 my-4" />
+          <div v-if="login_local && login_openid" class="w-full h-px bg-white/10 my-4" />
 
           <div class="w-full flex py-3">
-            <a v-if="login_openid" :href="openidAuthUri" class="w-full abs-btn outline-none rounded-md shadow-md relative border border-gray-600 text-center bg-primary text-white px-8 py-2 leading-none">
+            <a v-if="login_openid" :href="openidAuthUri" class="w-full abs-btn outline-hidden rounded-md shadow-md relative border border-gray-600 text-center bg-primary text-white px-8 py-2 leading-none">
               {{ openIDButtonText }}
             </a>
           </div>
@@ -85,7 +94,10 @@ export default {
       MetadataPath: '',
       login_local: true,
       login_openid: false,
-      authFormData: null
+      authFormData: null,
+      // New JWT auth system re-login flags
+      showNewAuthSystemMessage: false,
+      showNewAuthSystemAdminMessage: false
     }
   },
   watch: {
@@ -177,13 +189,20 @@ export default {
         require('@/plugins/chromecast.js').default(this)
       }
 
-      this.$store.commit('libraries/setCurrentLibrary', userDefaultLibraryId)
+      this.$store.commit('libraries/setLastLoad', 0) // Ensure libraries get loaded again when switching users
+      this.$store.commit('libraries/setCurrentLibrary', { id: userDefaultLibraryId })
       this.$store.commit('user/setUser', user)
+      // Access token only returned from login, not authorize
+      if (user.accessToken) {
+        this.$store.commit('user/setAccessToken', user.accessToken)
+      }
 
       this.$store.dispatch('user/loadUserSettings')
     },
     async submitForm() {
       this.error = null
+      this.showNewAuthSystemMessage = false
+      this.showNewAuthSystemAdminMessage = false
       this.processing = true
 
       const payload = {
@@ -210,6 +229,8 @@ export default {
 
       this.processing = true
 
+      this.$store.commit('user/setAccessToken', token)
+
       return this.$axios
         .$post('/api/authorize', null, {
           headers: {
@@ -217,16 +238,24 @@ export default {
           }
         })
         .then((res) => {
-          console.log('Res: ')
-          console.log(res)
+          // Force re-login if user is using an old token with no expiration
+          if (res.user.isOldToken) {
+            this.username = res.user.username
+            this.showNewAuthSystemMessage = true
+            // Admin user sees link to github discussion
+            this.showNewAuthSystemAdminMessage = res.user.type === 'admin' || res.user.type === 'root'
+            return false
+          }
+
           this.setUser(res)
-          this.processing = false
           return true
         })
         .catch((error) => {
           console.error('Authorize error', error)
-          this.processing = false
           return false
+        })
+        .finally(() => {
+          this.processing = false
         })
     },
     checkStatus() {
@@ -270,8 +299,8 @@ export default {
       }
 
       if (authMethods.includes('openid')) {
-        // Auto redirect unless query string ?autoLaunch=0
-        if (this.authFormData?.authOpenIDAutoLaunch && this.$route.query?.autoLaunch !== '0') {
+        // Auto redirect unless query string ?autoLaunch=0 OR when explicity requested through ?autoLaunch=1
+        if ((this.authFormData?.authOpenIDAutoLaunch && this.$route.query?.autoLaunch !== '0') || this.$route.query?.autoLaunch == '1') {
           window.location.href = this.openidAuthUri
         }
 
@@ -282,8 +311,9 @@ export default {
     }
   },
   async mounted() {
-    if (this.$route.query?.setToken) {
-      localStorage.setItem('token', this.$route.query.setToken)
+    // Token passed as query parameter after successful oidc login
+    if (this.$route.query?.accessToken) {
+      localStorage.setItem('token', this.$route.query.accessToken)
     }
     if (localStorage.getItem('token')) {
       if (await this.checkAuth()) return // if valid user no need to check status

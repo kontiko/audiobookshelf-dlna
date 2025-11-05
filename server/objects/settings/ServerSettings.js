@@ -7,6 +7,7 @@ const User = require('../../models/User')
 class ServerSettings {
   constructor(settings) {
     this.id = 'server-settings'
+    /** @type {string} JWT secret key ONLY used when JWT_SECRET_KEY is not set in ENV */
     this.tokenSecret = null
 
     // Scanner
@@ -52,6 +53,7 @@ class ServerSettings {
     this.dateFormat = 'MM/dd/yyyy'
     this.timeFormat = 'HH:mm'
     this.language = 'en-us'
+    this.allowedOrigins = []
 
     this.logLevel = Logger.logLevel
 
@@ -119,6 +121,7 @@ class ServerSettings {
     this.dateFormat = settings.dateFormat || 'MM/dd/yyyy'
     this.timeFormat = settings.timeFormat || 'HH:mm'
     this.language = settings.language || 'en-us'
+    this.allowedOrigins = settings.allowedOrigins || []
     this.logLevel = settings.logLevel || Logger.logLevel
     this.version = settings.version || null
     this.buildNumber = settings.buildNumber || 0 // Added v2.4.5
@@ -230,6 +233,7 @@ class ServerSettings {
       dateFormat: this.dateFormat,
       timeFormat: this.timeFormat,
       language: this.language,
+      allowedOrigins: this.allowedOrigins,
       logLevel: this.logLevel,
       version: this.version,
       buildNumber: this.buildNumber,

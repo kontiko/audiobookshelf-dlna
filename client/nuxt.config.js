@@ -73,7 +73,8 @@ module.exports = {
 
   // Axios module configuration: https://go.nuxtjs.dev/config-axios
   axios: {
-    baseURL: routerBasePath
+    baseURL: routerBasePath,
+    progress: false
   },
 
   // nuxt/pwa https://pwa.nuxtjs.org
@@ -112,16 +113,7 @@ module.exports = {
   },
 
   // Build Configuration: https://go.nuxtjs.dev/config-build
-  build: {
-    postcss: {
-      postcssOptions: {
-        plugins: {
-          tailwindcss: {},
-          autoprefixer: {}
-        }
-      }
-    }
-  },
+  build: {},
   watchers: {
     webpack: {
       aggregateTimeout: 300,

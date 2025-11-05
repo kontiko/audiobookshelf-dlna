@@ -30,8 +30,17 @@ describe('LazySeriesCard', () => {
   }
 
   const mocks = {
+    $getString: (id, args) => {
+      switch (id) {
+        case 'LabelAddedDate':
+          return `Added ${args[0]}`
+        default:
+          return null
+      }
+    },
     $store: {
       getters: {
+        getServerSetting: () => 'MM/dd/yyyy',
         'user/getUserCanUpdate': true,
         'user/getUserMediaProgress': (id) => null,
         'user/getSizeMultiplier': 1,

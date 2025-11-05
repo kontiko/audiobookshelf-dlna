@@ -4,7 +4,7 @@
       <div :key="shelf" :id="`shelf-${shelf - 1}`" class="w-full px-4e sm:px-8e relative" :class="{ bookshelfRow: !isAlternativeBookshelfView }" :style="{ height: shelfHeight + 'px' }">
         <!-- Card skeletons -->
         <template v-for="entityIndex in entitiesInShelf(shelf)">
-          <div :key="entityIndex" class="w-full h-full absolute rounded z-5 top-0 left-0 bg-primary box-shadow-book" :style="{ transform: entityTransform(entityIndex), width: cardWidth + 'px', height: coverHeight + 'px' }" />
+          <div :key="entityIndex" class="w-full h-full absolute rounded-sm z-5 top-0 left-0 bg-primary box-shadow-book" :style="{ transform: entityTransform(entityIndex), width: cardWidth + 'px', height: coverHeight + 'px' }" />
         </template>
         <div v-if="!isAlternativeBookshelfView" class="bookshelfDivider w-full absolute bottom-0 left-0 right-0 z-20 h-6e" />
       </div>
@@ -13,8 +13,8 @@
     <div v-if="initialized && !totalShelves && !hasFilter && entityName === 'items'" class="w-full flex flex-col items-center justify-center py-12">
       <p class="text-center text-2xl mb-4 py-4">{{ $getString('MessageXLibraryIsEmpty', [libraryName]) }}</p>
       <div v-if="userIsAdminOrUp" class="flex">
-        <ui-btn to="/config" color="primary" class="w-52 mr-2">{{ $strings.ButtonConfigureScanner }}</ui-btn>
-        <ui-btn color="success" class="w-52" :loading="isScanningLibrary || tempIsScanning" @click="scan">{{ $strings.ButtonScanLibrary }}</ui-btn>
+        <ui-btn to="/config" color="bg-primary" class="w-52 mr-2">{{ $strings.ButtonConfigureScanner }}</ui-btn>
+        <ui-btn color="bg-success" class="w-52" :loading="isScanningLibrary || tempIsScanning" @click="scan">{{ $strings.ButtonScanLibrary }}</ui-btn>
       </div>
     </div>
     <div v-else-if="!totalShelves && initialized" class="w-full py-16">
@@ -29,7 +29,7 @@
       </div>
       <!-- Clear filter only available on Library bookshelf -->
       <div v-if="entityName === 'items'" class="flex justify-center mt-2">
-        <ui-btn v-if="hasFilter" color="primary" @click="clearFilter">{{ $strings.ButtonClearFilter }}</ui-btn>
+        <ui-btn v-if="hasFilter" color="bg-primary" @click="clearFilter">{{ $strings.ButtonClearFilter }}</ui-btn>
       </div>
     </div>
 
@@ -232,11 +232,11 @@ export default {
     clearFilter() {
       this.$store.dispatch('user/updateUserSettings', { filterBy: 'all' })
     },
-    editEntity(entity) {
+    editEntity(entity, tab = 'details') {
       if (this.entityName === 'items' || this.entityName === 'series-books') {
         const bookIds = this.entities.map((e) => e.id)
         this.$store.commit('setBookshelfBookIds', bookIds)
-        this.$store.commit('showEditModal', entity)
+        this.$store.commit('showEditModalOnTab', { libraryItem: entity, tab: tab || 'details' })
       } else if (this.entityName === 'collections') {
         this.$store.commit('globals/setEditCollection', entity)
       } else if (this.entityName === 'playlists') {
@@ -568,6 +568,18 @@ export default {
         }
       }
     },
+    routeToBookshelfIfLastIssueRemoved() {
+      if (this.totalEntities === 0) {
+        const currentRouteQuery = this.$route.query
+        if (currentRouteQuery?.filter && currentRouteQuery.filter === 'issues') {
+          this.$nextTick(() => {
+            console.log('Last issue removed. Redirecting to library bookshelf')
+            this.$router.push(`/library/${this.currentLibraryId}/bookshelf`)
+            this.$store.dispatch('libraries/fetch', this.currentLibraryId)
+          })
+        }
+      }
+    },
     libraryItemRemoved(libraryItem) {
       if (this.entityName === 'items' || this.entityName === 'series-books') {
         var indexOf = this.entities.findIndex((ent) => ent && ent.id === libraryItem.id)
@@ -578,6 +590,7 @@ export default {
           this.executeRebuild()
         }
       }
+      this.routeToBookshelfIfLastIssueRemoved()
     },
     libraryItemsAdded(libraryItems) {
       console.log('items added', libraryItems)
@@ -765,10 +778,6 @@ export default {
     windowResize() {
       this.executeRebuild()
     },
-    socketInit() {
-      // Server settings are set on socket init
-      this.executeRebuild()
-    },
     initListeners() {
       window.addEventListener('resize', this.windowResize)
 
@@ -781,7 +790,6 @@ export default {
       })
 
       this.$eventBus.$on('bookshelf_clear_selection', this.clearSelectedEntities)
-      this.$eventBus.$on('socket_init', this.socketInit)
       this.$eventBus.$on('user-settings', this.settingsUpdated)
 
       if (this.$root.socket) {
@@ -813,7 +821,6 @@ export default {
       }
 
       this.$eventBus.$off('bookshelf_clear_selection', this.clearSelectedEntities)
-      this.$eventBus.$off('socket_init', this.socketInit)
       this.$eventBus.$off('user-settings', this.settingsUpdated)
 
       if (this.$root.socket) {

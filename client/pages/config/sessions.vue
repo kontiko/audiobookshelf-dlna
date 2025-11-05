@@ -6,83 +6,85 @@
       </div>
 
       <div v-if="listeningSessions.length" class="block max-w-full relative">
-        <table class="userSessionsTable">
-          <tr class="bg-primary bg-opacity-40">
-            <th class="w-6 min-w-6 text-left hidden md:table-cell h-11">
-              <ui-checkbox v-model="isAllSelected" :partial="numSelected > 0 && !isAllSelected" small checkbox-bg="bg" />
-            </th>
-            <th v-if="numSelected" class="flex-grow text-left" :colspan="7">
-              <div class="flex items-center">
-                <p>{{ $getString('MessageSelected', [numSelected]) }}</p>
-                <div class="flex-grow" />
-                <ui-btn small color="error" :loading="deletingSessions" @click.stop="removeSessionsClick">{{ $strings.ButtonRemove }}</ui-btn>
-              </div>
-            </th>
-            <th v-if="!numSelected" class="flex-grow sm:flex-grow-0 sm:w-48 sm:max-w-48 text-left group cursor-pointer" @click.stop="sortColumn('displayTitle')">
-              <div class="inline-flex items-center">
-                {{ $strings.LabelItem }} <span :class="{ 'opacity-0 group-hover:opacity-30': !isSortSelected('displayTitle') }" class="material-symbols text-base pl-px">{{ sortDesc ? 'arrow_drop_down' : 'arrow_drop_up' }}</span>
-              </div>
-            </th>
-            <th v-if="!numSelected" class="w-20 min-w-20 text-left hidden md:table-cell">{{ $strings.LabelUser }}</th>
-            <th v-if="!numSelected" class="w-26 min-w-26 text-left hidden md:table-cell group cursor-pointer" @click.stop="sortColumn('playMethod')">
-              <div class="inline-flex items-center">
-                {{ $strings.LabelPlayMethod }} <span :class="{ 'opacity-0 group-hover:opacity-30': !isSortSelected('playMethod') }" class="material-symbols text-base pl-px">{{ sortDesc ? 'arrow_drop_down' : 'arrow_drop_up' }}</span>
-              </div>
-            </th>
-            <th v-if="!numSelected" class="w-32 min-w-32 text-left hidden sm:table-cell">{{ $strings.LabelDeviceInfo }}</th>
-            <th v-if="!numSelected" class="w-24 min-w-24 sm:w-32 sm:min-w-32 group cursor-pointer" @click.stop="sortColumn('timeListening')">
-              <div class="inline-flex items-center">
-                {{ $strings.LabelTimeListened }} <span :class="{ 'opacity-0 group-hover:opacity-30': !isSortSelected('timeListening') }" class="material-symbols text-base pl-px hidden sm:inline-block">{{ sortDesc ? 'arrow_drop_down' : 'arrow_drop_up' }}</span>
-              </div>
-            </th>
-            <th v-if="!numSelected" class="w-24 min-w-24 group cursor-pointer" @click.stop="sortColumn('currentTime')">
-              <div class="inline-flex items-center">
-                {{ $strings.LabelLastTime }} <span :class="{ 'opacity-0 group-hover:opacity-30': !isSortSelected('currentTime') }" class="material-symbols text-base pl-px hidden sm:inline-block">{{ sortDesc ? 'arrow_drop_down' : 'arrow_drop_up' }}</span>
-              </div>
-            </th>
-            <th v-if="!numSelected" class="flex-grow hidden sm:table-cell cursor-pointer group" @click.stop="sortColumn('updatedAt')">
-              <div class="inline-flex items-center">
-                {{ $strings.LabelLastUpdate }} <span :class="{ 'opacity-0 group-hover:opacity-30': !isSortSelected('updatedAt') }" class="material-symbols text-base pl-px">{{ sortDesc ? 'arrow_drop_down' : 'arrow_drop_up' }}</span>
-              </div>
-            </th>
-          </tr>
+        <div class="overflow-x-auto">
+          <table class="userSessionsTable">
+            <tr class="bg-primary/40">
+              <th class="w-6 min-w-6 text-left hidden md:table-cell h-11">
+                <ui-checkbox v-model="isAllSelected" :partial="numSelected > 0 && !isAllSelected" small checkbox-bg="bg" />
+              </th>
+              <th v-if="numSelected" class="grow text-left" :colspan="7">
+                <div class="flex items-center">
+                  <p>{{ $getString('MessageSelected', [numSelected]) }}</p>
+                  <div class="grow" />
+                  <ui-btn small color="bg-error" :loading="deletingSessions" @click.stop="removeSessionsClick">{{ $strings.ButtonRemove }}</ui-btn>
+                </div>
+              </th>
+              <th v-if="!numSelected" class="grow sm:grow-0 sm:w-48 sm:max-w-48 text-left group cursor-pointer" @click.stop="sortColumn('displayTitle')">
+                <div class="inline-flex items-center">
+                  {{ $strings.LabelItem }} <span :class="{ 'opacity-0 group-hover:opacity-30': !isSortSelected('displayTitle') }" class="material-symbols text-base pl-px">{{ sortDesc ? 'arrow_drop_down' : 'arrow_drop_up' }}</span>
+                </div>
+              </th>
+              <th v-if="!numSelected" class="w-20 min-w-20 text-left hidden md:table-cell">{{ $strings.LabelUser }}</th>
+              <th v-if="!numSelected" class="w-26 min-w-26 text-left hidden md:table-cell group cursor-pointer" @click.stop="sortColumn('playMethod')">
+                <div class="inline-flex items-center">
+                  {{ $strings.LabelPlayMethod }} <span :class="{ 'opacity-0 group-hover:opacity-30': !isSortSelected('playMethod') }" class="material-symbols text-base pl-px">{{ sortDesc ? 'arrow_drop_down' : 'arrow_drop_up' }}</span>
+                </div>
+              </th>
+              <th v-if="!numSelected" class="w-32 min-w-32 text-left hidden sm:table-cell">{{ $strings.LabelDeviceInfo }}</th>
+              <th v-if="!numSelected" class="w-24 min-w-24 sm:w-32 sm:min-w-32 group cursor-pointer" @click.stop="sortColumn('timeListening')">
+                <div class="inline-flex items-center">
+                  {{ $strings.LabelTimeListened }} <span :class="{ 'opacity-0 group-hover:opacity-30': !isSortSelected('timeListening') }" class="material-symbols text-base pl-px hidden sm:inline-block">{{ sortDesc ? 'arrow_drop_down' : 'arrow_drop_up' }}</span>
+                </div>
+              </th>
+              <th v-if="!numSelected" class="w-24 min-w-24 group cursor-pointer" @click.stop="sortColumn('currentTime')">
+                <div class="inline-flex items-center">
+                  {{ $strings.LabelLastTime }} <span :class="{ 'opacity-0 group-hover:opacity-30': !isSortSelected('currentTime') }" class="material-symbols text-base pl-px hidden sm:inline-block">{{ sortDesc ? 'arrow_drop_down' : 'arrow_drop_up' }}</span>
+                </div>
+              </th>
+              <th v-if="!numSelected" class="grow hidden sm:table-cell cursor-pointer group" @click.stop="sortColumn('updatedAt')">
+                <div class="inline-flex items-center">
+                  {{ $strings.LabelLastUpdate }} <span :class="{ 'opacity-0 group-hover:opacity-30': !isSortSelected('updatedAt') }" class="material-symbols text-base pl-px">{{ sortDesc ? 'arrow_drop_down' : 'arrow_drop_up' }}</span>
+                </div>
+              </th>
+            </tr>
 
-          <tr v-for="session in listeningSessions" :key="session.id" :class="{ selected: session.selected }" class="cursor-pointer" @click="clickSessionRow(session)">
-            <td class="hidden md:table-cell py-1 max-w-6 relative">
-              <ui-checkbox v-model="session.selected" small checkbox-bg="bg" />
-              <!-- overlay of the checkbox so that the entire box is clickable -->
-              <div class="absolute inset-0 w-full h-full" @click.stop="session.selected = !session.selected" />
-            </td>
-            <td class="py-1 flex-grow sm:flex-grow-0 sm:w-48 sm:max-w-48">
-              <p class="text-xs text-gray-200 truncate">{{ session.displayTitle }}</p>
-              <p class="text-xs text-gray-400 truncate">{{ session.displayAuthor }}</p>
-            </td>
-            <td class="hidden md:table-cell w-20 min-w-20">
-              <p v-if="filteredUserUsername" class="text-xs">{{ filteredUserUsername }}</p>
-              <p v-else class="text-xs">{{ session.user ? session.user.username : 'N/A' }}</p>
-            </td>
-            <td class="hidden md:table-cell w-26 min-w-26">
-              <p class="text-xs">{{ getPlayMethodName(session.playMethod) }}</p>
-            </td>
-            <td class="hidden sm:table-cell max-w-32 min-w-32">
-              <p class="text-xs truncate" v-html="getDeviceInfoString(session.deviceInfo)" />
-            </td>
-            <td class="text-center w-24 min-w-24 sm:w-32 sm:min-w-32">
-              <p class="text-xs font-mono">{{ $elapsedPretty(session.timeListening) }}</p>
-            </td>
-            <td class="text-center hover:underline w-24 min-w-24" @click.stop="clickCurrentTime(session)">
-              <p class="text-xs font-mono">{{ $secondsToTimestamp(session.currentTime) }}</p>
-            </td>
-            <td class="text-center hidden sm:table-cell">
-              <ui-tooltip v-if="session.updatedAt" direction="top" :text="$formatDatetime(session.updatedAt, dateFormat, timeFormat)">
-                <p class="text-xs text-gray-200">{{ $dateDistanceFromNow(session.updatedAt) }}</p>
-              </ui-tooltip>
-            </td>
-          </tr>
-        </table>
+            <tr v-for="session in listeningSessions" :key="session.id" :class="{ selected: session.selected }" class="cursor-pointer" @click="clickSessionRow(session)">
+              <td class="hidden md:table-cell py-1 max-w-6 relative">
+                <ui-checkbox v-model="session.selected" small checkbox-bg="bg" />
+                <!-- overlay of the checkbox so that the entire box is clickable -->
+                <div class="absolute inset-0 w-full h-full" @click.stop="session.selected = !session.selected" />
+              </td>
+              <td class="py-1 grow sm:grow-0 sm:w-48 sm:max-w-48">
+                <p class="text-xs text-gray-200 truncate">{{ session.displayTitle }}</p>
+                <p class="text-xs text-gray-400 truncate">{{ session.displayAuthor }}</p>
+              </td>
+              <td class="hidden md:table-cell w-20 min-w-20">
+                <p v-if="filteredUserUsername" class="text-xs">{{ filteredUserUsername }}</p>
+                <p v-else class="text-xs">{{ session.user ? session.user.username : 'N/A' }}</p>
+              </td>
+              <td class="hidden md:table-cell w-26 min-w-26">
+                <p class="text-xs">{{ getPlayMethodName(session.playMethod) }}</p>
+              </td>
+              <td class="hidden sm:table-cell max-w-32 min-w-32">
+                <p class="text-xs truncate" v-html="getDeviceInfoString(session.deviceInfo)" />
+              </td>
+              <td class="text-center w-24 min-w-24 sm:w-32 sm:min-w-32">
+                <p class="text-xs font-mono">{{ $elapsedPrettyLocalized(session.timeListening) }}</p>
+              </td>
+              <td class="text-center hover:underline w-24 min-w-24" @click.stop="clickCurrentTime(session)">
+                <p class="text-xs font-mono">{{ $secondsToTimestamp(session.currentTime) }}</p>
+              </td>
+              <td class="text-center hidden sm:table-cell">
+                <ui-tooltip v-if="session.updatedAt" direction="top" :text="$formatDatetime(session.updatedAt, dateFormat, timeFormat)">
+                  <p class="text-xs text-gray-200">{{ $dateDistanceFromNow(session.updatedAt) }}</p>
+                </ui-tooltip>
+              </td>
+            </tr>
+          </table>
+        </div>
         <!-- table bottom options -->
         <div class="flex items-center my-2">
-          <div class="flex-grow" />
+          <div class="grow" />
           <div class="hidden sm:inline-flex items-center">
             <p class="text-sm whitespace-nowrap">{{ $strings.LabelRowsPerPage }}</p>
             <ui-dropdown v-model="itemsPerPage" :items="itemsPerPageOptions" small class="w-24 mx-2" @input="updatedItemsPerPage" />
@@ -98,7 +100,7 @@
           <ui-loading-indicator />
         </div>
       </div>
-      <p v-else class="text-white text-opacity-50">{{ $strings.MessageNoListeningSessions }}</p>
+      <p v-else class="text-white/50">{{ $strings.MessageNoListeningSessions }}</p>
 
       <div v-if="openListeningSessions.length" class="w-full my-8 h-px bg-white/10" />
 
@@ -106,14 +108,14 @@
       <p v-if="openListeningSessions.length" class="text-lg my-4">{{ $strings.HeaderOpenListeningSessions }}</p>
       <div v-if="openListeningSessions.length" class="block max-w-full">
         <table class="userSessionsTable">
-          <tr class="bg-primary bg-opacity-40">
+          <tr class="bg-primary/40">
             <th class="w-48 min-w-48 text-left">{{ $strings.LabelItem }}</th>
             <th class="w-20 min-w-20 text-left hidden md:table-cell">{{ $strings.LabelUser }}</th>
             <th class="w-32 min-w-32 text-left hidden md:table-cell">{{ $strings.LabelPlayMethod }}</th>
             <th class="w-32 min-w-32 text-left hidden sm:table-cell">{{ $strings.LabelDeviceInfo }}</th>
             <th class="w-32 min-w-32">{{ $strings.LabelTimeListened }}</th>
             <th class="w-16 min-w-16">{{ $strings.LabelLastTime }}</th>
-            <th class="flex-grow hidden sm:table-cell">{{ $strings.LabelLastUpdate }}</th>
+            <th class="grow hidden sm:table-cell">{{ $strings.LabelLastUpdate }}</th>
           </tr>
 
           <tr v-for="session in openListeningSessions" :key="`open-${session.id}`" class="cursor-pointer" @click="showSession(session)">
@@ -151,13 +153,13 @@
       <p v-if="openShareListeningSessions.length" class="text-lg my-4">Open Share Listening Sessions</p>
       <div v-if="openShareListeningSessions.length" class="block max-w-full">
         <table class="userSessionsTable">
-          <tr class="bg-primary bg-opacity-40">
+          <tr class="bg-primary/40">
             <th class="w-48 min-w-48 text-left">{{ $strings.LabelItem }}</th>
             <th class="w-20 min-w-20 text-left hidden md:table-cell">{{ $strings.LabelUser }}</th>
             <th class="w-32 min-w-32 text-left hidden md:table-cell">{{ $strings.LabelPlayMethod }}</th>
             <th class="w-32 min-w-32 text-left hidden sm:table-cell">{{ $strings.LabelDeviceInfo }}</th>
             <th class="w-16 min-w-16">{{ $strings.LabelLastTime }}</th>
-            <th class="flex-grow hidden sm:table-cell">{{ $strings.LabelLastUpdate }}</th>
+            <th class="grow hidden sm:table-cell">{{ $strings.LabelLastUpdate }}</th>
           </tr>
 
           <tr v-for="session in openShareListeningSessions" :key="`open-${session.id}`" class="cursor-pointer" @click="showSession(session)">
@@ -250,10 +252,10 @@ export default {
       return user?.username || null
     },
     dateFormat() {
-      return this.$store.state.serverSettings.dateFormat
+      return this.$store.getters['getServerSetting']('dateFormat')
     },
     timeFormat() {
-      return this.$store.state.serverSettings.timeFormat
+      return this.$store.getters['getServerSetting']('timeFormat')
     },
     numSelected() {
       return this.listeningSessions.filter((s) => s.selected).length

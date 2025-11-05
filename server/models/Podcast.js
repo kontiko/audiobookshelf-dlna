@@ -2,6 +2,7 @@ const { DataTypes, Model } = require('sequelize')
 const { getTitlePrefixAtEnd, getTitleIgnorePrefix } = require('../utils')
 const Logger = require('../Logger')
 const libraryItemsPodcastFilters = require('../utils/queries/libraryItemsPodcastFilters')
+const htmlSanitizer = require('../utils/htmlSanitizer')
 
 /**
  * @typedef PodcastExpandedProperties
@@ -80,6 +81,13 @@ class Podcast extends Model {
     const autoDownloadSchedule = typeof payload.autoDownloadSchedule === 'string' ? payload.autoDownloadSchedule : null
     const genres = Array.isArray(payload.metadata.genres) && payload.metadata.genres.every((g) => typeof g === 'string' && g.length) ? payload.metadata.genres : []
     const tags = Array.isArray(payload.tags) && payload.tags.every((t) => typeof t === 'string' && t.length) ? payload.tags : []
+
+    const stringKeys = ['title', 'author', 'releaseDate', 'feedUrl', 'imageUrl', 'description', 'itunesPageUrl', 'itunesId', 'itunesArtistId', 'language', 'type']
+    stringKeys.forEach((key) => {
+      if (typeof payload.metadata[key] === 'number') {
+        payload.metadata[key] = String(payload.metadata[key])
+      }
+    })
 
     return this.create(
       {
@@ -204,6 +212,11 @@ class Podcast extends Model {
     if (payload.metadata) {
       const stringKeys = ['title', 'author', 'releaseDate', 'feedUrl', 'imageUrl', 'description', 'itunesPageUrl', 'itunesId', 'itunesArtistId', 'language', 'type']
       stringKeys.forEach((key) => {
+        // Convert numbers to strings
+        if (typeof payload.metadata[key] === 'number') {
+          payload.metadata[key] = String(payload.metadata[key])
+        }
+
         let newKey = key
         if (key === 'type') {
           newKey = 'podcastType'
@@ -215,6 +228,15 @@ class Podcast extends Model {
           newKey = 'itunesPageURL'
         }
         if ((typeof payload.metadata[key] === 'string' || payload.metadata[key] === null) && payload.metadata[key] !== this[newKey]) {
+          // Sanitize description HTML
+          if (key === 'description' && payload.metadata[key]) {
+            const sanitizedDescription = htmlSanitizer.sanitize(payload.metadata[key])
+            if (sanitizedDescription !== payload.metadata[key]) {
+              Logger.debug(`[Podcast] "${this.title}" Sanitized description from "${payload.metadata[key]}" to "${sanitizedDescription}"`)
+              payload.metadata[key] = sanitizedDescription
+            }
+          }
+
           this[newKey] = payload.metadata[key] || null
 
           if (key === 'title') {

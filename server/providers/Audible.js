@@ -3,7 +3,7 @@ const Logger = require('../Logger')
 const { isValidASIN } = require('../utils/index')
 
 class Audible {
-  #responseTimeout = 30000
+  #responseTimeout = 10000
 
   constructor() {
     this.regionMap = {
@@ -41,7 +41,7 @@ class Audible {
   }
 
   cleanResult(item) {
-    const { title, subtitle, asin, authors, narrators, publisherName, summary, releaseDate, image, genres, seriesPrimary, seriesSecondary, language, runtimeLengthMin, formatType } = item
+    const { title, subtitle, asin, authors, narrators, publisherName, summary, releaseDate, image, genres, seriesPrimary, seriesSecondary, language, runtimeLengthMin, formatType, isbn } = item
 
     const series = []
     if (seriesPrimary) {
@@ -70,6 +70,7 @@ class Audible {
       description: summary || null,
       cover: image,
       asin,
+      isbn,
       genres: genresFiltered.length ? genresFiltered : null,
       tags: tagsFiltered.length ? tagsFiltered.join(', ') : null,
       series: series.length ? series : null,
@@ -105,7 +106,7 @@ class Audible {
         return res.data
       })
       .catch((error) => {
-        Logger.error('[Audible] ASIN search error', error)
+        Logger.error('[Audible] ASIN search error', error.message)
         return null
       })
   }
@@ -157,7 +158,7 @@ class Audible {
           return Promise.all(res.data.products.map((result) => this.asinSearch(result.asin, region, timeout)))
         })
         .catch((error) => {
-          Logger.error('[Audible] query search error', error)
+          Logger.error('[Audible] query search error', error.message)
           return []
         })
     }

@@ -34,6 +34,14 @@ const levenshteinDistance = (str1, str2, caseSensitive = false) => {
 }
 module.exports.levenshteinDistance = levenshteinDistance
 
+const levenshteinSimilarity = (str1, str2, caseSensitive = false) => {
+  const distance = levenshteinDistance(str1, str2, caseSensitive)
+  const maxLength = Math.max(str1.length, str2.length)
+  if (maxLength === 0) return 1
+  return 1 - distance / maxLength
+}
+module.exports.levenshteinSimilarity = levenshteinSimilarity
+
 module.exports.isObject = (val) => {
   return val !== null && typeof val === 'object'
 }
@@ -242,4 +250,30 @@ module.exports.isUUID = (str) => {
 module.exports.isValidASIN = (str) => {
   if (!str || typeof str !== 'string') return false
   return /^[A-Z0-9]{10}$/.test(str)
+}
+
+/**
+ * Convert timestamp to seconds
+ * @example "01:00:00" => 3600
+ * @example "01:00" => 60
+ * @example "01" => 1
+ *
+ * @param {string} timestamp
+ * @returns {number}
+ */
+module.exports.timestampToSeconds = (timestamp) => {
+  if (typeof timestamp !== 'string') {
+    return null
+  }
+  const parts = timestamp.split(':').map(Number)
+  if (parts.some(isNaN)) {
+    return null
+  } else if (parts.length === 1) {
+    return parts[0]
+  } else if (parts.length === 2) {
+    return parts[0] * 60 + parts[1]
+  } else if (parts.length === 3) {
+    return parts[0] * 3600 + parts[1] * 60 + parts[2]
+  }
+  return null
 }

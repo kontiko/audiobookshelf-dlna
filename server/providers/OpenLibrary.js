@@ -1,7 +1,7 @@
 const axios = require('axios').default
 
 class OpenLibrary {
-  #responseTimeout = 30000
+  #responseTimeout = 10000
 
   constructor() {
     this.baseUrl = 'https://openlibrary.org'
@@ -23,7 +23,7 @@ class OpenLibrary {
         return res.data
       })
       .catch((error) => {
-        console.error('Failed', error)
+        console.error('Failed', error.message)
         return null
       })
   }
@@ -66,10 +66,10 @@ class OpenLibrary {
   }
 
   parsePublishYear(doc, worksData) {
-    if (doc.first_publish_year && !isNaN(doc.first_publish_year)) return doc.first_publish_year
+    if (doc.first_publish_year && !isNaN(doc.first_publish_year)) return String(doc.first_publish_year)
     if (worksData.first_publish_date) {
       var year = worksData.first_publish_date.split('-')[0]
-      if (!isNaN(year)) return year
+      if (!isNaN(year)) return String(year)
     }
     return null
   }

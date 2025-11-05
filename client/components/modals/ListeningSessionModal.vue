@@ -11,7 +11,7 @@
         <p v-if="_session.displayAuthor" class="text-xs text-gray-400 px-4">{{ $getString('LabelByAuthor', [_session.displayAuthor]) }}</p>
       </div>
 
-      <div class="w-full h-px bg-white bg-opacity-10 my-4" />
+      <div class="w-full h-px bg-white/10 my-4" />
 
       <div class="flex flex-wrap mb-4">
         <div class="w-full md:w-2/3">
@@ -81,7 +81,7 @@
         </div>
         <div class="w-full md:w-1/3">
           <p v-if="!isMediaItemShareSession" class="font-semibold uppercase text-xs text-gray-400 tracking-wide mb-2 mt-6 md:mt-0">{{ $strings.LabelUser }}</p>
-          <p v-if="!isMediaItemShareSession" class="mb-1 text-xs">{{ _session.userId }}</p>
+          <p v-if="!isMediaItemShareSession" class="mb-1 text-xs">{{ username }}</p>
 
           <p class="font-semibold uppercase text-xs text-gray-400 tracking-wide mt-6 mb-2">{{ $strings.LabelMediaPlayer }}</p>
           <p class="mb-1">{{ playMethodName }}</p>
@@ -99,8 +99,8 @@
       </div>
 
       <div class="flex items-center">
-        <ui-btn v-if="!isOpenSession && !isMediaItemShareSession" small color="error" @click.stop="deleteSessionClick">{{ $strings.ButtonDelete }}</ui-btn>
-        <ui-btn v-else-if="!isMediaItemShareSession" small color="error" @click.stop="closeSessionClick">{{ $strings.ButtonCloseSession }}</ui-btn>
+        <ui-btn v-if="!isOpenSession && !isMediaItemShareSession" small color="bg-error" @click.stop="deleteSessionClick">{{ $strings.ButtonDelete }}</ui-btn>
+        <ui-btn v-else-if="!isMediaItemShareSession" small color="bg-error" @click.stop="closeSessionClick">{{ $strings.ButtonCloseSession }}</ui-btn>
       </div>
     </div>
   </modals-modal>
@@ -132,6 +132,9 @@ export default {
     _session() {
       return this.session || {}
     },
+    username() {
+      return this._session.user?.username || this._session.userId || ''
+    },
     deviceInfo() {
       return this._session.deviceInfo || {}
     },
@@ -159,10 +162,10 @@ export default {
       return 'Unknown'
     },
     dateFormat() {
-      return this.$store.state.serverSettings.dateFormat
+      return this.$store.getters['getServerSetting']('dateFormat')
     },
     timeFormat() {
-      return this.$store.state.serverSettings.timeFormat
+      return this.$store.getters['getServerSetting']('timeFormat')
     },
     isOpenSession() {
       return !!this._session.open

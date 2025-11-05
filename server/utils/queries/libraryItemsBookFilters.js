@@ -186,6 +186,8 @@ module.exports = {
       mediaWhere['$series.id$'] = null
     } else if (group === 'abridged') {
       mediaWhere['abridged'] = true
+    } else if (group === 'explicit') {
+      mediaWhere['explicit'] = true
     } else if (['genres', 'tags', 'narrators'].includes(group)) {
       mediaWhere[group] = Sequelize.where(Sequelize.literal(`(SELECT count(*) FROM json_each(${group}) WHERE json_valid(${group}) AND json_each.value = :filterValue)`), {
         [Sequelize.Op.gte]: 1
@@ -251,6 +253,15 @@ module.exports = {
    */
   getOrder(sortBy, sortDesc, collapseseries) {
     const dir = sortDesc ? 'DESC' : 'ASC'
+
+    const getTitleOrder = () => {
+      if (global.ServerSettings.sortingIgnorePrefix) {
+        return [Sequelize.literal('`libraryItem`.`titleIgnorePrefix` COLLATE NOCASE'), dir]
+      } else {
+        return [Sequelize.literal('`libraryItem`.`title` COLLATE NOCASE'), dir]
+      }
+    }
+
     if (sortBy === 'addedAt') {
       return [[Sequelize.literal('libraryItem.createdAt'), dir]]
     } else if (sortBy === 'size') {
@@ -264,24 +275,25 @@ module.exports = {
     } else if (sortBy === 'media.metadata.publishedYear') {
       return [[Sequelize.literal(`CAST(\`book\`.\`publishedYear\` AS INTEGER)`), dir]]
     } else if (sortBy === 'media.metadata.authorNameLF') {
-      return [[Sequelize.literal('author_name COLLATE NOCASE'), dir]]
+      // Sort by author name last first, secondary sort by title
+      return [[Sequelize.literal('`libraryItem`.`authorNamesLastFirst` COLLATE NOCASE'), dir], getTitleOrder()]
     } else if (sortBy === 'media.metadata.authorName') {
-      return [[Sequelize.literal('author_name COLLATE NOCASE'), dir]]
+      // Sort by author name first last, secondary sort by title
+      return [[Sequelize.literal('`libraryItem`.`authorNamesFirstLast` COLLATE NOCASE'), dir], getTitleOrder()]
     } else if (sortBy === 'media.metadata.title') {
       if (collapseseries) {
         return [[Sequelize.literal('display_title COLLATE NOCASE'), dir]]
       }
-
-      if (global.ServerSettings.sortingIgnorePrefix) {
-        return [[Sequelize.literal('`libraryItem`.`titleIgnorePrefix` COLLATE NOCASE'), dir]]
-      } else {
-        return [[Sequelize.literal('`libraryItem`.`title` COLLATE NOCASE'), dir]]
-      }
+      return [getTitleOrder()]
     } else if (sortBy === 'sequence') {
       const nullDir = sortDesc ? 'DESC NULLS FIRST' : 'ASC NULLS LAST'
       return [[Sequelize.literal(`CAST(\`series.bookSeries.sequence\` AS FLOAT) ${nullDir}`)]]
     } else if (sortBy === 'progress') {
-      return [[Sequelize.literal('mediaProgresses.updatedAt'), dir]]
+      return [[Sequelize.literal(`mediaProgresses.updatedAt ${dir} NULLS LAST`)]]
+    } else if (sortBy === 'progress.createdAt') {
+      return [[Sequelize.literal(`mediaProgresses.createdAt ${dir} NULLS LAST`)]]
+    } else if (sortBy === 'progress.finishedAt') {
+      return [[Sequelize.literal(`mediaProgresses.finishedAt ${dir} NULLS LAST`)]]
     } else if (sortBy === 'random') {
       return [Database.sequelize.random()]
     }
@@ -344,22 +356,28 @@ module.exports = {
     countCache.clear()
   },
 
-  async findAndCountAll(findOptions, limit, offset) {
-    const findOptionsKey = stringifySequelizeQuery(findOptions)
-    Logger.debug(`[LibraryItemsBookFilters] findOptionsKey: ${findOptionsKey}`)
+  async findAndCountAll(findOptions, limit, offset, useCountCache) {
+    const model = Database.bookModel
+    if (useCountCache) {
+      const countCacheKey = stringifySequelizeQuery(findOptions)
+      Logger.debug(`[LibraryItemsBookFilters] countCacheKey: ${countCacheKey}`)
+      if (!countCache.has(countCacheKey)) {
+        const count = await model.count(findOptions)
+        countCache.set(countCacheKey, count)
+      }
+
+      findOptions.limit = limit || null
+      findOptions.offset = offset
+
+      const rows = await model.findAll(findOptions)
+
+      return { rows, count: countCache.get(countCacheKey) }
+    }
 
     findOptions.limit = limit || null
     findOptions.offset = offset
 
-    if (countCache.has(findOptionsKey)) {
-      const rows = await Database.bookModel.findAll(findOptions)
-
-      return { rows, count: countCache.get(findOptionsKey) }
-    } else {
-      const result = await Database.bookModel.findAndCountAll(findOptions)
-      countCache.set(findOptionsKey, result.count)
-      return result
-    }
+    return await model.findAndCountAll(findOptions)
   },
 
   /**
@@ -385,24 +403,10 @@ module.exports = {
     if (filterGroup !== 'series' && sortBy === 'sequence') {
       sortBy = 'media.metadata.title'
     }
-    if (filterGroup !== 'progress' && sortBy === 'progress') {
-      sortBy = 'media.metadata.title'
-    }
     const includeRSSFeed = include.includes('rssfeed')
     const includeMediaItemShare = !!user?.isAdminOrUp && include.includes('share')
 
-    // For sorting by author name an additional attribute must be added
-    //   with author names concatenated
     let bookAttributes = null
-    if (sortBy === 'media.metadata.authorNameLF') {
-      bookAttributes = {
-        include: [[Sequelize.literal(`(SELECT group_concat(lastFirst, ", ") FROM (SELECT a.lastFirst FROM authors AS a, bookAuthors as ba WHERE ba.authorId = a.id AND ba.bookId = book.id ORDER BY ba.createdAt ASC))`), 'author_name']]
-      }
-    } else if (sortBy === 'media.metadata.authorName') {
-      bookAttributes = {
-        include: [[Sequelize.literal(`(SELECT group_concat(name, ", ") FROM (SELECT a.name FROM authors AS a, bookAuthors as ba WHERE ba.authorId = a.id AND ba.bookId = book.id ORDER BY ba.createdAt ASC))`), 'author_name']]
-      }
-    }
 
     const libraryItemWhere = {
       libraryId
@@ -434,19 +438,17 @@ module.exports = {
 
     const libraryItemIncludes = []
     const bookIncludes = []
-    if (includeRSSFeed) {
+
+    if (filterGroup === 'feed-open' || includeRSSFeed) {
+      const rssFeedRequired = filterGroup === 'feed-open'
       libraryItemIncludes.push({
         model: Database.feedModel,
-        required: filterGroup === 'feed-open',
-        separate: true
+        required: rssFeedRequired,
+        separate: !rssFeedRequired
       })
     }
-    if (filterGroup === 'feed-open' && !includeRSSFeed) {
-      libraryItemIncludes.push({
-        model: Database.feedModel,
-        required: true
-      })
-    } else if (filterGroup === 'share-open') {
+
+    if (filterGroup === 'share-open') {
       bookIncludes.push({
         model: Database.mediaItemShareModel,
         required: true
@@ -521,7 +523,7 @@ module.exports = {
       }
       bookIncludes.push({
         model: Database.mediaProgressModel,
-        attributes: ['id', 'isFinished', 'currentTime', 'ebookProgress', 'updatedAt'],
+        attributes: ['id', 'isFinished', 'currentTime', 'ebookProgress', 'updatedAt', 'createdAt', 'finishedAt'],
         where: mediaProgressWhere,
         required: false
       })
@@ -529,6 +531,18 @@ module.exports = {
       libraryItemWhere['createdAt'] = {
         [Sequelize.Op.gte]: new Date(new Date() - 60 * 24 * 60 * 60 * 1000) // 60 days ago
       }
+    }
+
+    // When sorting by progress but not filtering by progress, include media progresses
+    if (filterGroup !== 'progress' && ['progress.createdAt', 'progress.finishedAt', 'progress'].includes(sortBy)) {
+      bookIncludes.push({
+        model: Database.mediaProgressModel,
+        attributes: ['id', 'isFinished', 'currentTime', 'ebookProgress', 'updatedAt', 'createdAt', 'finishedAt'],
+        where: {
+          userId: user.id
+        },
+        required: false
+      })
     }
 
     let { mediaWhere, replacements } = this.getMediaGroupQuery(filterGroup, filterValue)
@@ -608,7 +622,7 @@ module.exports = {
     }
 
     const findAndCountAll = process.env.QUERY_PROFILING ? profile(this.findAndCountAll) : this.findAndCountAll
-    const { rows: books, count } = await findAndCountAll(findOptions, limit, offset)
+    const { rows: books, count } = await findAndCountAll(findOptions, limit, offset, !filterGroup && !userPermissionBookWhere.bookWhere.length)
 
     const libraryItems = books.map((bookExpanded) => {
       const libraryItem = bookExpanded.libraryItem
@@ -1202,10 +1216,12 @@ module.exports = {
         libraryItem.media.series = []
         return libraryItem.toOldJSON()
       })
-      seriesMatches.push({
-        series: series.toOldJSON(),
-        books
-      })
+      if (books.length) {
+        seriesMatches.push({
+          series: series.toOldJSON(),
+          books
+        })
+      }
     }
 
     // Search authors
@@ -1254,7 +1270,12 @@ module.exports = {
         libraryId
       }
     })
-    return statResults[0]
+    return {
+      totalSize: statResults?.[0]?.totalSize || 0,
+      totalDuration: statResults?.[0]?.totalDuration || 0,
+      numAudioFiles: statResults?.[0]?.numAudioFiles || 0,
+      totalItems: statResults?.[0]?.totalItems || 0
+    }
   },
 
   /**

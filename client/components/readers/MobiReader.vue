@@ -1,7 +1,7 @@
 <template>
   <div class="w-full h-full">
     <div class="h-full max-h-full w-full">
-      <div class="ebook-viewer absolute overflow-y-scroll left-0 right-0 top-16 w-full max-w-4xl m-auto z-10 border border-black border-opacity-20 shadow-md bg-white">
+      <div class="ebook-viewer absolute overflow-y-scroll left-0 right-0 top-16 w-full max-w-4xl m-auto z-10 border border-black/20 shadow-md bg-white">
         <iframe title="html-viewer" width="100%"> Loading </iframe>
       </div>
     </div>
@@ -26,9 +26,6 @@ export default {
     return {}
   },
   computed: {
-    userToken() {
-      return this.$store.getters['user/getToken']
-    },
     libraryItemId() {
       return this.libraryItem?.id
     },
@@ -96,11 +93,8 @@ export default {
     },
     async initMobi() {
       // Fetch mobi file as blob
-      var buff = await this.$axios.$get(this.ebookUrl, {
-        responseType: 'blob',
-        headers: {
-          Authorization: `Bearer ${this.userToken}`
-        }
+      const buff = await this.$axios.$get(this.ebookUrl, {
+        responseType: 'blob'
       })
       var reader = new FileReader()
       reader.onload = async (event) => {

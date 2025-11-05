@@ -59,6 +59,8 @@ module.exports = {
       replacements.filterValue = value
     } else if (group === 'languages') {
       mediaWhere['language'] = value
+    } else if (group === 'explicit') {
+      mediaWhere['explicit'] = true
     }
 
     return {
@@ -105,22 +107,27 @@ module.exports = {
     countCache.clear()
   },
 
-  async findAndCountAll(findOptions, model, limit, offset) {
-    const cacheKey = stringifySequelizeQuery(findOptions)
-    if (!countCache.has(cacheKey)) {
-      const count = await model.count(findOptions)
-      countCache.set(cacheKey, count)
+  async findAndCountAll(findOptions, model, limit, offset, useCountCache) {
+    if (useCountCache) {
+      const countCacheKey = stringifySequelizeQuery(findOptions)
+      Logger.debug(`[LibraryItemsPodcastFilters] countCacheKey: ${countCacheKey}`)
+      if (!countCache.has(countCacheKey)) {
+        const count = await model.count(findOptions)
+        countCache.set(countCacheKey, count)
+      }
+
+      findOptions.limit = limit || null
+      findOptions.offset = offset
+
+      const rows = await model.findAll(findOptions)
+
+      return { rows, count: countCache.get(countCacheKey) }
     }
 
     findOptions.limit = limit || null
     findOptions.offset = offset
 
-    const rows = await model.findAll(findOptions)
-
-    return {
-      rows,
-      count: countCache.get(cacheKey)
-    }
+    return await model.findAndCountAll(findOptions)
   },
 
   /**
@@ -144,11 +151,12 @@ module.exports = {
       libraryId
     }
     const libraryItemIncludes = []
-    if (includeRSSFeed) {
+    if (filterGroup === 'feed-open' || includeRSSFeed) {
+      const rssFeedRequired = filterGroup === 'feed-open'
       libraryItemIncludes.push({
         model: Database.feedModel,
-        required: filterGroup === 'feed-open',
-        separate: true
+        required: rssFeedRequired,
+        separate: !rssFeedRequired
       })
     }
     if (filterGroup === 'issues') {
@@ -199,7 +207,7 @@ module.exports = {
 
     const findAndCountAll = process.env.QUERY_PROFILING ? profile(this.findAndCountAll) : this.findAndCountAll
 
-    const { rows: podcasts, count } = await findAndCountAll(findOptions, Database.podcastModel, limit, offset)
+    const { rows: podcasts, count } = await findAndCountAll(findOptions, Database.podcastModel, limit, offset, !filterGroup && !userPermissionPodcastWhere.podcastWhere.length)
 
     const libraryItems = podcasts.map((podcastExpanded) => {
       const libraryItem = podcastExpanded.libraryItem
@@ -323,7 +331,7 @@ module.exports = {
 
     const findAndCountAll = process.env.QUERY_PROFILING ? profile(this.findAndCountAll) : this.findAndCountAll
 
-    const { rows: podcastEpisodes, count } = await findAndCountAll(findOptions, Database.podcastEpisodeModel, limit, offset)
+    const { rows: podcastEpisodes, count } = await findAndCountAll(findOptions, Database.podcastEpisodeModel, limit, offset, !filterGroup)
 
     const libraryItems = podcastEpisodes.map((ep) => {
       const libraryItem = ep.podcast.libraryItem
@@ -406,6 +414,43 @@ module.exports = {
       })
     }
 
+    // Search podcast episode title
+    const podcastEpisodes = await Database.podcastEpisodeModel.findAll({
+      where: [
+        Sequelize.literal(textSearchQuery.matchExpression('podcastEpisode.title')),
+        {
+          '$podcast.libraryItem.libraryId$': library.id
+        }
+      ],
+      replacements: userPermissionPodcastWhere.replacements,
+      include: [
+        {
+          model: Database.podcastModel,
+          where: [...userPermissionPodcastWhere.podcastWhere],
+          include: [
+            {
+              model: Database.libraryItemModel
+            }
+          ]
+        }
+      ],
+      distinct: true,
+      offset,
+      limit
+    })
+    const episodeMatches = []
+    for (const episode of podcastEpisodes) {
+      const libraryItem = episode.podcast.libraryItem
+      libraryItem.media = episode.podcast
+      libraryItem.media.podcastEpisodes = []
+      const oldPodcastEpisodeJson = episode.toOldJSONExpanded(libraryItem.id)
+      const libraryItemJson = libraryItem.toOldJSONExpanded()
+      libraryItemJson.recentEpisode = oldPodcastEpisodeJson
+      episodeMatches.push({
+        libraryItem: libraryItemJson
+      })
+    }
+
     const matchJsonValue = textSearchQuery.matchExpression('json_each.value')
 
     // Search tags
@@ -445,7 +490,8 @@ module.exports = {
     return {
       podcast: itemMatches,
       tags: tagMatches,
-      genres: genreMatches
+      genres: genreMatches,
+      episodes: episodeMatches
     }
   },
 
@@ -460,7 +506,7 @@ module.exports = {
   async getRecentEpisodes(user, library, limit, offset) {
     const userPermissionPodcastWhere = this.getUserPermissionPodcastWhereQuery(user)
 
-    const episodes = await Database.podcastEpisodeModel.findAll({
+    const findOptions = {
       where: {
         '$mediaProgresses.isFinished$': {
           [Sequelize.Op.or]: [null, false]
@@ -491,7 +537,11 @@ module.exports = {
       subQuery: false,
       limit,
       offset
-    })
+    }
+
+    const findtAll = process.env.QUERY_PROFILING ? profile(Database.podcastEpisodeModel.findAll.bind(Database.podcastEpisodeModel)) : Database.podcastEpisodeModel.findAll.bind(Database.podcastEpisodeModel)
+
+    const episodes = await findtAll(findOptions)
 
     const episodeResults = episodes.map((ep) => {
       ep.podcast.podcastEpisodes = [] // Not needed
@@ -524,8 +574,10 @@ module.exports = {
       }
     })
     return {
-      ...statResults[0],
-      totalSize: sizeResults[0].totalSize || 0
+      totalDuration: statResults?.[0]?.totalDuration || 0,
+      numAudioFiles: statResults?.[0]?.numAudioFiles || 0,
+      totalItems: statResults?.[0]?.totalItems || 0,
+      totalSize: sizeResults?.[0]?.totalSize || 0
     }
   },
 

@@ -77,6 +77,10 @@ class LibraryItem extends Model {
     this.title // Only used for sorting
     /** @type {string} */
     this.titleIgnorePrefix // Only used for sorting
+    /** @type {string} */
+    this.authorNamesFirstLast // Only used for sorting
+    /** @type {string} */
+    this.authorNamesLastFirst // Only used for sorting
   }
 
   /**
@@ -242,7 +246,6 @@ class LibraryItem extends Model {
       include
     })
     if (!libraryItem) {
-      Logger.error(`[LibraryItem] Library item not found`)
       return null
     }
 
@@ -683,7 +686,9 @@ class LibraryItem extends Model {
         libraryFiles: DataTypes.JSON,
         extraData: DataTypes.JSON,
         title: DataTypes.STRING,
-        titleIgnorePrefix: DataTypes.STRING
+        titleIgnorePrefix: DataTypes.STRING,
+        authorNamesFirstLast: DataTypes.STRING,
+        authorNamesLastFirst: DataTypes.STRING
       },
       {
         sequelize,
@@ -709,6 +714,12 @@ class LibraryItem extends Model {
           },
           {
             fields: ['libraryId', 'mediaType', { name: 'titleIgnorePrefix', collate: 'NOCASE' }]
+          },
+          {
+            fields: ['libraryId', 'mediaType', { name: 'authorNamesFirstLast', collate: 'NOCASE' }]
+          },
+          {
+            fields: ['libraryId', 'mediaType', { name: 'authorNamesLastFirst', collate: 'NOCASE' }]
           },
           {
             fields: ['libraryId', 'mediaId', 'mediaType']

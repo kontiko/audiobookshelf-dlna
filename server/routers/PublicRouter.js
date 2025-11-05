@@ -1,6 +1,7 @@
 const express = require('express')
 const ShareController = require('../controllers/ShareController')
 const DLNAController = require('../controllers/DLNAController')
+const SessionController = require('../controllers/SessionController')
 
 class PublicRouter {
   constructor(playbackSessionManager, DLNAManager) {
@@ -20,6 +21,7 @@ class PublicRouter {
     this.router.get('/share/:slug/cover', ShareController.getMediaItemShareCoverImage.bind(this))
     this.router.get('/share/:slug/download', ShareController.downloadMediaItemShare.bind(this))
     this.router.patch('/share/:slug/progress', ShareController.updateMediaItemShareProgress.bind(this))
+    this.router.get('/session/:id/track/:index', SessionController.getTrack.bind(this))
   }
 }
 module.exports = PublicRouter
