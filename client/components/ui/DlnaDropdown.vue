@@ -1,10 +1,8 @@
 <template>
-  <div class="max-w-52" v-click-outside="clickOutsideObj" v-if="has_devices">
-    <button type="button" :disabled="disabled" aria-haspopup="listbox" :aria-expanded="showMenu" @click.stop.prevent="clickShowMenu">
-      <div class="flex">
-        <span class="hidden sm:block truncate">
-          <span v-show="has_devices" class="material-icons-outlined text-2xl text-opacity-50" v-bind:class="{ 'icon-blue': has_device }"> cast </span>
-        </span>
+  <div class="relative h-8 md:min-w-8" v-click-outside="clickOutsideObj" v-if="has_devices">
+    <button type="button" :disabled="disabled" class="w-8 sm:w-full relative h-full" aria-haspopup="listbox" :aria-expanded="showMenu" @click.stop.prevent="clickShowMenu">
+      <div class="flex items-center justify-center sm:justify-start">
+        <span v-show="has_devices" class="material-symbols text-2xl text-opacity-50" v-bind:class="{ 'icon-blue': has_device }">cast</span>
       </div>
     </button>
 

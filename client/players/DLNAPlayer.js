@@ -129,6 +129,9 @@ export default class DLNAPlayer extends EventEmitter {
   }
 
   getCurrentTime() {
+    if (!this.audioTracks[this.currentTrackIndex]) {
+      return 0
+    }
     return this.currentTime + this.audioTracks[this.currentTrackIndex].startOffset
   }
   seek(time) {

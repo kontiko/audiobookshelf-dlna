@@ -70,5 +70,10 @@
     "nodemon": "^2.0.20",
     "nyc": "^15.1.0",
     "sinon": "^17.0.1"
+  },
+  "overrides": {
+    "upnp-mediarenderer-client": {
+      "upnp-device-client": "git+https://github.com/kontiko/node-upnp-device-client-sonos-support.git"
+    }
   }
 }
